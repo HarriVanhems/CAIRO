@@ -1,0 +1,7 @@
+dataset,n_rows,n_features,target,missing_feature_values,notes
+abalone,4177,10,rings,0,Sex one-hot encoded.
+auto_mpg,398,9,mpg,6,Car name dropped; origin one-hot encoded; horsepower missing values kept as NaN.
+communities_and_crime,1994,122,violent_crimes_per_pop,36851,Dropped the first five identifier columns; missing values preserved as NaN.
+computer_hardware,209,6,prp,0,Dropped vendor/model identifiers and ERP leakage column.
+concrete_slump_test,103,9,SLUMP(cm),0,Dropped row identifier column.
+parkinsons_telemonitoring,5875,20,total_UPDRS,0,Dropped subject identifier column.

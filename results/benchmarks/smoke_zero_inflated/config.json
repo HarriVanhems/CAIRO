@@ -1,0 +1,31 @@
+{
+  "eval_at": 10,
+  "grid_learning_rate": [
+    0.05,
+    0.1
+  ],
+  "grid_levels": [
+    5,
+    7
+  ],
+  "grid_num_leaves": [
+    31,
+    63
+  ],
+  "grid_trees": [
+    400,
+    800
+  ],
+  "n_calibration": 50,
+  "n_jobs": 1,
+  "n_test": 100,
+  "n_train": 200,
+  "n_tune": 50,
+  "phi": 1.0,
+  "q_values": [
+    1.0
+  ],
+  "random_seed_offset": 1000,
+  "replications": 1,
+  "tweedie_power": 1.5
+}
