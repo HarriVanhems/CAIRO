@@ -6,8 +6,12 @@
   implemented progressively in `src/cairo/` and runnable from `scripts/`
 - Synthetic zero-inflated Tweedie benchmark:
   `src/cairo/synthetic/zero_inflated_tweedie.py`
+- Paper-aligned synthetic benchmark:
+  `src/cairo/synthetic/paper_benchmark.py`
 - Historical notebook provenance:
   `notebooks/archive/paper_workbench.ipynb`
+- Newer synthetic notebook provenance:
+  `notebooks/archive/paper_synthetic_workbench.ipynb`
 - Figures and legacy plot outputs:
   `results/figures/`
 - Benchmark outputs:

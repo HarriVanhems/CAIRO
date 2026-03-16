@@ -13,7 +13,22 @@ Research repository for the CAIRO paper: calibrated two-stage rank-then-regress 
 
 ## Current Entry Points
 
-The first cleaned benchmark extracted from the workbench notebook is:
+The main paper-aligned synthetic benchmark is now:
+
+```bash
+python scripts/run_paper_synthetic_benchmark.py --mode debug
+```
+
+This runner uses the CAIRO synthetic setup that is closer to the current draft:
+
+- RankNet / weighted RankNet / GiniNet stage-1 models
+- isotonic stage-2 calibration
+- robust neural and tabular baselines
+- contamination and heavy-tail stress sweeps
+- pair-sampling ablations
+- saved NeurIPS-style plots under `results/benchmarks/paper_synthetic/figures/`
+
+The earlier cleaned benchmark extracted from the workbench notebook remains available as a secondary synthetic runner:
 
 ```bash
 python3 scripts/run_zero_inflated_benchmark.py
