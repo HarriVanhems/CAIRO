@@ -1,0 +1,20 @@
+\begin{remark}[Relation to the maximum rank correlation model]
+\label{rmk:mrc_relation}
+The generalized regression model underlying the maximum rank correlation estimator \citep{han1987non,shin2021exact} has the form
+\[
+Y = D(F(X^\top \beta_0,\varepsilon)),
+\]
+with $D$ monotone and $F$ strictly monotone in each argument. This representation is not equivalent to the Kendall assumption in item~1. By itself, it does not guarantee either that the conditional mean is a strictly monotone function of the same index, or that pairwise dominance is ordered by $X^\top \beta_0$. However, it becomes a sufficient route to item~1 after adding the standard Han-type strengthening: $\varepsilon \perp X$, $\mathbb{E}|Y|<\infty$, no ties, and strict stochastic monotonicity of $H(z,e):=D(F(z,e))$ in $z$. Under those conditions,
+\[
+x^\top\beta_0>x'^\top\beta_0
+\quad\Longrightarrow\quad
+\mathbb{P}(Y>Y' \mid x,x')>\tfrac12.
+\]
+If in addition $m^\star(x)=\mathbb{E}[Y\mid X=x]=\psi(x^\top\beta_0)$ for a strictly increasing $\psi$, then
+\[
+m^\star(x)>m^\star(x')
+\quad\Longleftrightarrow\quad
+\mathbb{P}(Y>Y' \mid x,x')>\tfrac12,
+\]
+so item~1 follows. Thus the MRC model supplies a stronger structural sufficient condition for our Kendall assumption, but not an equivalent one. The converse fails because item~1 is purely an order condition on $(m^\star,\mathbb{P}(Y>Y'\mid x,x'))$ and does not require any single-index representation. A further caveat is that when $D$ is discrete, as in binary choice or censoring models, ties can invalidate the literal $>1/2$ statement even though the weaker tie-robust comparison $\mathbb{P}(Y>Y' \mid x,x')>\mathbb{P}(Y<Y' \mid x,x')$ may still hold.
+\end{remark}

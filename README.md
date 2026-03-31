@@ -16,17 +16,39 @@ Research repository for the CAIRO paper: calibrated two-stage rank-then-regress 
 The main paper-aligned synthetic benchmark is now:
 
 ```bash
-python scripts/run_paper_synthetic_benchmark.py --mode debug
+python scripts/run_paper_synthetic_benchmark.py
 ```
 
 This runner uses the CAIRO synthetic setup that is closer to the current draft:
 
-- RankNet / weighted RankNet / GiniNet stage-1 models
-- isotonic stage-2 calibration
-- robust neural and tabular baselines
+- CAIRO models defined as rank-first stage-1 scorers followed by isotonic stage-2 calibration
+- stage-1 CAIRO variants now include `CAIROK1`, `CAIROG1`, `CAIROS1`, `CAIROG2`, plus a boosting-based `CAIRO-XGBPairwise` ranker
+- baselines compared directly without isotonic post-processing in the main benchmark
+- baseline neural regression now includes `NN-MSE`, `NN-MAE`, and a validation-tuned `NN-Huber` model with the same `32 -> 16 -> 1` architecture used in the other MLP baselines
+- strong tabular baselines plus robust alternatives like quantile regression
+- monotone-distortion and low-data studies that isolate the value of the two-stage design
 - contamination and heavy-tail stress sweeps
 - pair-sampling ablations
 - saved NeurIPS-style plots under `results/benchmarks/paper_synthetic/figures/`
+
+Run modes:
+
+- `python scripts/run_paper_synthetic_benchmark.py`
+  smoke run with the full paper-aligned pipeline
+- `python scripts/run_paper_synthetic_benchmark.py --skip-sweeps`
+  quick local check of the main benchmark only
+- `python scripts/run_paper_synthetic_benchmark.py --mode debug`
+  single-repeat research run with all main scenarios
+- `python scripts/run_paper_synthetic_benchmark.py --mode full`
+  larger paper-style run
+
+The focused positive-skew severity study is available as a separate runner:
+
+```bash
+python scripts/run_positive_skew_study.py
+```
+
+Use this when you want to test the hypothesis that CAIRO is strongest in positive, skewed, heteroskedastic regimes without running the entire synthetic benchmark suite.
 
 The earlier cleaned benchmark extracted from the workbench notebook remains available as a secondary synthetic runner:
 

@@ -1,0 +1,53 @@
+{
+  "batch_size": 1024,
+  "contamination_levels": [
+    0.0,
+    0.05,
+    0.1,
+    0.2,
+    0.3
+  ],
+  "epochs_gini": 80,
+  "epochs_ranknet": 80,
+  "huber_delta_multipliers": [
+    0.25,
+    0.5,
+    1.0,
+    2.0,
+    4.0
+  ],
+  "low_data_sizes": [
+    200,
+    500,
+    1000,
+    2500,
+    5000
+  ],
+  "mode": "full",
+  "monotone_strengths": [
+    0.0,
+    0.4,
+    0.8,
+    1.2,
+    1.6,
+    2.0
+  ],
+  "n_repeats": 5,
+  "n_samples": 6000,
+  "output_dir": "/Users/harrivanhems/Desktop/Mcgill/Research/CAIRO/results/benchmarks/monotone_distortion_neural_full_g2patched",
+  "pair_accuracy_samples": 200000,
+  "pair_budgets": [
+    70000,
+    250000
+  ],
+  "pairs_train": 250000,
+  "pairs_val": 60000,
+  "seed": 2025,
+  "student_t_dfs": [
+    2.0,
+    2.5,
+    3.0,
+    5.0,
+    10.0
+  ]
+}

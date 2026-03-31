@@ -1,0 +1,8 @@
+{
+  "catboost": true,
+  "fast_soft_sort": true,
+  "lightgbm": true,
+  "tensorflow": true,
+  "torch": true,
+  "xgboost": true
+}

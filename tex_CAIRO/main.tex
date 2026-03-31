@@ -1,0 +1,2148 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[latin9]{inputenc}
+\usepackage{geometry}
+\geometry{verbose,tmargin=2.5cm,bmargin=2.5cm,lmargin=2.5cm,rmargin=2.5cm}
+\synctex=-1
+\usepackage{color}
+\usepackage{verbatim}
+\usepackage{float}
+\usepackage{mathtools}
+\usepackage{algorithm2e}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{setspace}
+\usepackage{wasysym}
+\usepackage{bbm}
+\usepackage{esint}
+
+\usepackage[inline]{enumitem}
+
+\usepackage[authoryear]{natbib}
+\onehalfspacing
+\usepackage[unicode=true,
+ bookmarks=false,
+ breaklinks=true,pdfborder={0 0 0},pdfborderstyle={},backref=false,colorlinks=true,citecolor=blue,urlcolor=blue]
+ {hyperref}
+\hypersetup{
+ citecolor=blue, linkcolor=blue}
+
+\makeatletter
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Textclass specific LaTeX commands.
+\newenvironment{lyxlist}[1]
+	{\begin{list}{}
+		{\settowidth{\labelwidth}{#1}
+		 \setlength{\leftmargin}{\labelwidth}
+		 \addtolength{\leftmargin}{\labelsep}
+		 \renewcommand{\makelabel}[1]{##1\hfil}}}
+	{\end{list}}
+\theoremstyle{plain}
+\newtheorem{remark}{\protect\remarkname}
+\theoremstyle{plain}
+\newtheorem{assumption}{\protect\assumptionname}
+\theoremstyle{plain}
+\newtheorem{proposition}{\protect\propositionname}
+\theoremstyle{plain}
+\newtheorem{theorem}{\protect\theoremname}
+\theoremstyle{plain}
+\newtheorem{example}{\protect\examplename}
+\theoremstyle{plain}
+\newtheorem{definition}{\protect\definitionname}
+\theoremstyle{plain}
+\newtheorem{lemma}{\protect\lemmaname}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% User specified LaTeX commands.
+\topmargin 0pt
+\advance \topmargin by -\headheight
+\advance \topmargin by -\headsep
+
+\usepackage[OT1]{fontenc}
+\usepackage{amsthm,amsmath,amsfonts}
+\usepackage{natbib}
+%\usepackage{multirow}
+\usepackage{booktabs}
+\usepackage{mathrsfs}
+\usepackage{graphicx,xcolor}
+\usepackage{subcaption}
+\usepackage{amssymb,latexsym}
+\usepackage{textcomp}
+\renewcommand{\rmdefault}{ptm}
+\usepackage[scaled=0.92]{helvet}
+\usepackage{times}
+\usepackage[final]{microtype}
+\usepackage{titling}
+
+\newcommand\colorm[1]{\textcolor{magenta}{#1}}
+\newcommand\colorgray[1]{\textcolor{gray}{#1}}
+\definecolor{cairoaddedgreen}{RGB}{0,90,40}
+\newcommand{\addedtext}[1]{{\color{cairoaddedgreen}#1}}
+\newenvironment{addedblock}{\begingroup\color{cairoaddedgreen}}{\endgroup}
+
+% Algorithm table setting
+\LinesNumbered
+\RestyleAlgo{algoruled} 
+\usepackage{microtype}
+ 
+
+ 
+
+\makeatother
+
+\providecommand{\assumptionname}{Assumption}
+\providecommand{\corollaryname}{Corollary}
+\providecommand{\lemmaname}{Lemma}
+\providecommand{\propositionname}{Proposition}
+\providecommand{\remarkname}{Remark}
+\providecommand{\theoremname}{Theorem}
+\providecommand{\definitionname}{Definition}
+\providecommand{\examplename}{Example}
+
+\newtheorem*{remark*}{Remark}
+
+
+\begin{document}
+\input{macros.tex}
+\title{Decoupling Order from Scale in Regression}
+
+\author{Harri Vanhems \thanks{McGill University and Mila; Email:  \texttt{harri.vanhems@mail.mcgill.ca}.}
+\and 
+Yue Zhao \thanks{University of York; Email: \texttt{yue.zhao@york.ac.uk}.}
+\and
+Peng Shi \thanks{University of Wisconsin-Madison; Email: \texttt{pshi@bus.wisc.edu}.}
+\and
+Archer Y. Yang \thanks{Co-corresponding author. McGill University and Mila; Email: \texttt{archer.yang.yi@gmail.com}.}
+}
+\maketitle 
+
+\begin{abstract}
+Standard regression methods typically optimize a single pointwise objective, such as mean squared error, which conflates the learning of ordering with the learning of scale. This coupling renders models vulnerable to outliers and heavy-tailed noise. We propose \textsc{CAIRO} (\textbf{C}alibrate \textbf{A}fter \textbf{I}nitial \textbf{R}ank \textbf{O}rdering), a framework that decouples regression into two distinct stages. In the first stage, we learn a scoring function by minimizing a scale-invariant ranking loss; in the second, we recover the target scale via isotonic regression. We theoretically characterize a class of "Optimal-in-Rank-Order" objectives --- including variants of RankNet and Gini covariance --- and prove that they recover the ordering of the true conditional mean under mild assumptions. We further show that subsequent monotone calibration recovers the true regression function at the population level and mathematically guarantees that finite-sample predictions are strictly auto-calibrated. Empirically, CAIRO combines the representation learning of neural networks with the robustness of rank-based statistics. It matches the performance of state-of-the-art tree ensembles on tabular benchmarks and significantly outperforms standard regression objectives in regimes with heavy-tailed or heteroskedastic noise.
+
+
+ 
+\end{abstract}
+
+\section{Introduction}
+\label{sec: intro}
+Supervised learning models are typically evaluated using metrics aligned with specific deployment objectives. We focus on two broad families of such metrics. The first consists of pointwise accuracy metrics, such as mean squared error (MSE) in regression or log-loss in classification, which reward predictions that are numerically close to the target or true probability. The second consists of rank-based metrics, which reward models for correctly ordering pairs of examples relative to one another. Although these objectives are often studied separately, many real world applications require models to maintain high performance across both.
+
+In classification settings, this dual requirement is common, for instance, in ad click prediction or medical screening, where models must rank candidates effectively while also producing calibrated probabilities. Importantly, the same tension arises in regression tasks with continuous, real-valued targets. A canonical example is insurance pricing, where a model must rank policyholders by risk to segment them appropriately while also assigning premiums that are actuarially sound and financially sustainable. It must also output strictly \emph{auto-calibrated} premiums---meaning the expected actual loss for any predicted premium tier must exactly match the predicted premium ($\mathbb{E}[Y|\hat{m}(X)] = \hat{m}(X)$). Without this strict local unbiasedness, an insurer risks severe financial deficits. Similar requirements appear in credit risk modeling, demand forecasting, and healthcare cost prediction, where models must prioritize borrowers, products, or patients while also producing numerically accurate loss, demand, or cost estimates.
+
+Despite this widespread need, regression methodology has largely treated ranking and numerical accuracy as separate objectives. In classification, methodologies for combining ranking and probability calibration are well established. However, analogous techniques for regression with real-valued targets remain underexplored, and methods designed for binary or  categorical outcomes do not directly extend to continuous settings. 
+
+To address this gap, we introduce \textsc{CAIRO} (\textbf{C}alibrate \textbf{A}fter \textbf{I}nitial \textbf{R}ank \textbf{O}rdering), a two-stage framework that explicitly decouples ranking from scale in regression. In Stage 1, CAIRO minimizes a scale-invariant ranking loss to learn the ordering of the conditional mean. In Stage 2, it performs monotone calibration to recover the appropriate scale.
+
+This framework is theoretically grounded: it targets the true conditional expectation at the population level, just as a standard MSE-based learner would.
+
+Crucially, the separation of learning into distinct stages provides two major statistical advantages over standard unconstrained regression. First, because ranking losses are scale-invariant, the representation learned in Stage~1 is inherently shielded from the magnitude of outliers. This allows \textsc{CAIRO} to function as a highly robust regression method, offering stability in regimes with heavy-tailed or heteroskedastic noise where standard MSE minimization often fails. Second, the isotonic projection in Stage~2 mathematically guarantees that the final predictions are \emph{auto-calibrated} on the training data. Standard neural networks optimized for global MSE frequently suffer from local miscalibration, systematically over- or under-predicting across different segments of the output space. By structurally enforcing that the empirical mean of the targets exactly matches the predicted value within every constant piece (level set) of the fitted function, \textsc{CAIRO} ensures locally unbiased estimation.
+
+
+The remainder of this paper is organized as follows. Section~\ref{sec:background} reviews related work on learning-to-rank and score recalibration. Section~\ref{sec:our_method} introduces the \textsc{CAIRO} framework and formalizes its two-stage population objective. Section~\ref{sec: ranking_phase} studies Stage~1, including weighted pairwise ranking losses, their pointwise equivalents, and the class of \emph{Optimal-in-Rank-Order} (ORO) objectives that guarantee order-consistency with the conditional mean. Section~\ref{sec:calibration} analyzes Stage~2 and proves that monotone calibration via isotonic regression recovers the true regression function when the Stage~1 objective is ORO. Section~\ref{sec:calib-empirical} details empirical estimation and practical algorithms, including smooth surrogates for efficient optimization. Finally, Section~\ref{sec:experiments} presents synthetic and real-data benchmarks demonstrating that \textsc{CAIRO} is competitive with strong tree-based baselines and is particularly robust under heavy-tailed and heteroskedastic noise.
+
+
+\section{Background and Related Work}
+\label{sec:background}
+
+ 
+\paragraph{Learning to rank.}
+
+In a classical ranking framework, one considers two i.i.d.\ copies $(X,Y)$ and seeks a scoring function $g$ that induces an ordering rule: $g(X)>g(X') \implies Y>Y'$. A common approach is to learn $g$ by minimizing a pairwise ranking loss \citep{clemenccon2008ranking}:
+\begin{equation}
+\label{eq:01-pop}
+\mathbb{P}\!\left\{(Y-Y')\,\operatorname{sign}\!\big(g(X)-g(X')\big)\le 0\right\},
+\end{equation}
+Such objectives penalize discordant pairs and are therefore inherently scale-invariant. This perspective contrasts with regression, where the goal is to estimate the conditional mean
+$m^\star(x) \equiv \mathbb{E}[Y| X=x]$ by minimizing a pointwise loss such as $\mathbb{E}\big[(Y-m(X))^2\big]$.
+
+The learning-to-rank literature, especially in information retrieval, has developed a large array of ranking algorithms to estimate the optimal score $g$ given data $\{(x_i, y_i)\}_{i=1}^n$. Pairwise methods, including RankSVM \citep{joachims2002optimizing} and RankNet \citep{burges2005learning} optimize smooth surrogates of pairwise misordering, typically logistic or hinge-style losses applied to score differences $g(x_i)-g(x_j)$. These approaches are often augmented with heuristic importance weights designed to approximate ranking metrics, such as NDCG or MAP \citep{burges2010ranknet}.  
+Listwise methods, such as ListNet, instead construct losses at the level of entire ranked lists, sometimes via differentiable relaxations of the sorting operator \citep{cao2007learning,taylor2008SoftRank}.  
+More recent work introduces faster permutation-based relaxations such as \emph{SoftSort}, which approximate ranks and sorted scores with smooth operators suitable for gradient-based training \citep{prillo2020softsort}. 
+
+\paragraph{Recalibration and auto-calibration.}
+Many learning algorithms produce scores whose magnitude are not directly interpretable, as they are not necessarily on the same numerical scale as the target quantity of interest. Calibration refers to the task of learning a transformation of these raw outputs so that they align with a desired target scale. In classification, the primary objective is to transform unnormalized outputs into reliable probability estimates via parametric mappings like Platt scaling \citep{platt1999probabilistic, niculescu2005predicting} or non-parametric approaches like histogram binning \citep{zadrozny2001obtaining, naeini2015obtaining}. In continuous regression, the analogous concept is \emph{auto-calibration} \citep{kruger2021generic, gneiting2023regression, wuthrich2023model}, which requires the prediction to be unbiased conditional on itself, i.e., $\mathbb{E}[Y|\hat{m}(X)] = \hat{m}(X)$. Isotonic regression offers a flexible non-parametric solution to achieve this by finding the optimal non-decreasing function that minimizes the squared error between scores and targets \citep{zadrozny2002transforming}. Because the Pool Adjacent Violators (PAV) algorithm computes block-wise local averages of the response, isotonic regression structurally guarantees empirical auto-calibration without assuming a rigid parametric form \citep{barlow1972statistical,guntuboyina2018nonparametric}.
+ 
+\paragraph{Ranking for classification/regression.}
+ 
+Combining ranking and calibration methods that has primarily been studied in classification, with the goal of improving class probability estimates. For instance, \citet{sculley2010combined, yan2022scale} proposed a joint multi-objective loss function to simultaneously optimize ranking and calibration. Such approaches, however, force a trade-off between the ranking and calibration objectives, offering no theoretical guarantee that the calibrated output recovers the true class probabilities. This problem was adressed by \citet{menon2012predicting}, who proposed a sequential approach, learning the ranking first and calibration second. While their method provided a theoretical guarantee to recover the true class probabilities, their analysis was limited to linear scores and binary outcomes, restricting its applicability to broader machine learning contexts.
+
+More recently, \citet{wuthrich2024isotonic} applied isotonic recalibration to risk scores in insurance pricing, extending the sequential philosophy of \citet{menon2012predicting} to regression with continuous outcomes. Their analysis studies calibration under the assumption that the first-stage scores preserve the ordering of the conditional mean. However, the link between the first-stage loss and order-consistency is not formally characterized, and population-level consistency of the resulting two-stage estimator is not established.
+
+%ADD DISCUSSION ABOUT LIMIT OF THEIR REAL DATA SECTION
+
+The principle of prioritizing order before scale has also appeared in mechanism design. The \emph{Isotonic Mechanism} proposed for peer review \citep{su2021you, yan2025isotonic, wu2025isotonic} establish that calibrating noisy scores using a provided ranking can substantially reduce estimation error.  Our work extends this insight into the supervised learning setting, albeit with a fundamental distinction regarding the provenance of the ranking. While the Isotonic Mechanism relies on eliciting a ranking from a human agent (e.g., an author ranking their own papers), CAIRO learns a ranking function directly from feature representations. We demonstrate that the robustness benefits observed in mechanism design persists in deep regression, even when the ranking is a learned latent construct rather than an external oracle.
+
+\paragraph{Semiparametric single-index models.}
+
+From a statistical perspective, modeling the conditional mean as $\mathbb{E}[Y| X=x] = f(g(x))$, where $f$ is an unknown monotonic link function and $g$ is a scoring index, naturally connects our framework to semiparametric single-index models (SIMs) \citep{hardle1993optimal,hardle1989investigating,ichimura1993semiparametric}. Our approach shares  conceptual roots with the maximum rank correlation (MRC) estimator \citep{han1987non}, which recovers a linear index $g(x) = x^\top \beta$ by maximizing Kendall's $\tau$. \textsc{CAIRO} thus serves as a flexible, deep-learning-compatible generalization of classical index models. However, it significantly departs from standard SIM estimation strategies. While traditional SIMs rely on computationally heavy profile-likelihoods or bandwidth-sensitive kernel smoothing to jointly estimate $f$ and $g$, \textsc{CAIRO} decouples the problem. By learning a highly non-linear index via distribution-free ranking losses and subsequently recovering the shape-constrained link through efficient isotonic regression, we circumvent classical computational bottlenecks.
+
+
+
+\paragraph{Our contributions.} 
+
+In this paper, \begin{enumerate*}[label=(\roman*)] 
+\item we propose \textsc{CAIRO}, a two stage regression framework that extends the rank-then-calibrate approach of \citet{menon2012predicting} to real-valued outcomes. We formally characterize a class of first-stage ranking losses that guarantee order-consistency with the conditional mean and show that subsequent isotonic calibration yields a consistent estimator of the regression function at the population level. This framework accommodates a broad family of ranking objectives.
+\item We provide theoretical insights into ranking losses by connecting them to classical measures of association such as Spearman's $\rho$ and Kendall's $\tau$. 
+% \item We mathematically ensure that our final estimator is \emph{auto-calibrated} via Stage~2 isotonic projection, effectively turning uncalibrated neural network representations into reliable, locally unbiased statistical forecasters.
+\item  We demonstrate through numerical studies that \textsc{CAIRO} serves as a robust alternative to direct MSE minimization, particularly in settings with heavy-tailed or heteroskedastic noise. \end{enumerate*}
+
+
+\section{The Decoupled Regression Framework}
+\label{sec:our_method}
+Consider a two-stage population learning framework to construct a regression model.
+In Stage~1, a scoring function is trained using a ranking loss $\mathcal{L}_\textup{rank}$ over a function class $\mathcal{G}$ (assumed to enclose the class $\mathcal{G}'$ defined later in Definition~\ref{def:ORO}): 
+\begin{align}\label{eq:stage1}
+    \text{Stage 1:}\qquad g^{\star} &\in \arg\min_{g \in \mathcal{G}} \mathcal{L}_\text{rank}(Y, g(X)).
+\end{align}
+The goal of Stage~1 is to learn a strictly increasing transformation of the true regression function $m^{\star}$. In particular, we will show that under suitable conditions, the optimal score takes the form $g^{\star}(X) = h(m^{\star}(X))$ for some strictly increasing transformation $h$. In Stage~2, the output from Stage~1 is calibrated using isotonic regression to recover $m^{\star}$.  Specifically, we minimize the squared loss $\mathcal{L}_\textup{cal}$ over the space of non-decreasing functions $\mathcal{F}$ while preserving the ranking learned in Stage~1. Formally,
+\begin{align}\label{eq:stage2}
+    \text{Stage 2:}\qquad f^{\star} &\in \arg\min_{f \in \mathcal{F}} \mathcal{L}_\text{cal}(Y, f(g^{\star}(X))).
+\end{align}
+This step yields a model $f^{\star}$ that can be viewed as learning the inverse of the unknown function $h(\cdot)$ in $g^{\star}(X) = h(m^{\star}(X))$, thereby recovering the true regression function. We will show that $f^{\star}(g^{\star}) = m^{\star}$.  Henceforth, we refer to this two-stage procedure as the Calibrated After Initial Rank Ordering (CAIRO) framework. %Figure~\ref{fig:mechanism_comparison} provides a visual intuition of the learning decoupling.
+
+%One caveat with Stage~1 optimization is that $g^{\star}$ itself is only identified up to a strictly increasing transformation.  (In classification tasks, this identification issue is absent because there the scale of responses is fixed.)  As a consequence, the Stage~2 optimizer $f^{\star}$ is only identified up to (the inverse of) the said transformation as well.  However, the composition $f^{\star} (g^{\star}) = m^{\star}$ is clearly always well identified.  (If we insist, we could fix Stage~1 identification through requiring $g^{\star}(X)$ to follow a given distribution, for instance the uniform distribution on $[0,1]$.)  In practice, since in the implementation of Stage~1 we will rely on smoothed versions of the rank loss, Stage~1 identification issue is alleviated.  For instance, in Method~1 later based on the log-sigmoid function, Stage~1 optimizer $g^{\star}$ is identified up to an additive constant, so a unique optimizer can be fixed easily (e.g., by requiring $g^{\star}(\textbf{0})=0$).
+
+A notable characteristic of Stage~1 optimization is that $g^{\star}$ is only identified up to a strictly increasing transformation. In classification tasks, this identification issue is absent because the scale of responses is fixed; however, in our regression framework, the Stage 2 optimizer $f^{\star}$ is consequently identified only up to the inverse of that same transformation. Despite this individual ambiguity, the composition $f^{\star}(g^{\star}) = m^{\star}$ remains well-identified.  Although one could resolve this by constraining $g^{\star}(X)$ to a specific distribution (e.g., $\text{Unif}[0,1]$), such a step is often unnecessary in practice. In our implementation, we rely on smoothed versions of the ranking loss.  For instance, when utilizing the log-sigmoid surrogate, $g^{\star}$ is identified up to an additive constant, which can be uniquely fixed by a simple constraint such as $g^{\star}(\mathbf{0})=0$.
+
+\subsection{Stage 1: Optimal-in-Rank-Order Objectives}
+\label{sec: ranking_phase}
+
+% Current:
+
+% ORO
+% Here is the pairwise population loss satisfying ORO
+% There is weight taking 3 options
+% Thm1: for each option, we present the listwise loss form
+% Thm2: these losses are ORO
+
+
+% New:
+% 1. Here is the pairwise population loss (give a reference Annals)
+% 2. There is weight taking 3 options, each option lead to specific pairwise ranking loss.
+% 3. Thm1: for each pairwise loss, here are their pointwise loss form
+
+% 4. ORO
+% Thm2: these losses are ORO
+
+In this section, we discuss Stage~1 of the decoupled regression framework (Stage~2 will be discussed in Section \ref{sec:calibration}). 
+For two i.i.d. copies
+$(X,Y)$ and $(X',Y')$ and a symmetric weighting function
+$w(Y,Y')$, consider the following generalization of the pairwise ranking loss in \eqref{eq:01-pop}:
+\begin{equation}
+\label{weighted-01-pop}
+\mathcal{L}
+\;\equiv\;
+\mathbb{E}\!\left[
+  w(Y,Y')\,
+  \mathbbm{1}\!\left\{
+    (Y-Y')\,\operatorname{sign}\!\big(g(X)-g(X')\big) \le 0
+  \right\}
+\right].
+\end{equation}
+%GIVE A SENTENCE TO DESCRIBE THE INTUITION OF why the LOSS is defined this way.
+
+%The pairwise structure of \eqref{weighted-01-pop} aligns with the fundamental ranking goal: build a score $g$ leading to a rank rule: $g(X)>g(X') \implies Y>Y'$.
+
+%The loss in \ref{weighted-01-pop} optimizes for a scoring rule which learns teh rde
+
+
+%Different choice of weight in (3) leads to different ranking losses in the exiting literatures (GIVE REFERENCES): (i) the \emph{Uniform} weight $w(Y,Y') \equiv 1$,
+%(ii) the \emph{Absolute Gap} weight $w(Y,Y') \equiv |Y-Y'|$, and
+%(iii) the \emph{Rank Gap} weight $w(Y,Y') \equiv \big|F_Y(Y)-F_Y(Y')\big|$.
+
+
+%More details: The introduction of the weight does not improve intereparability of the changes in the learning process. 
+ 
+%Such an interpretation may be derived by deriving the pointwise equivalent form of each loss. Specifically, Theorem~\ref{thm:equivalence} provides the pointwise expression of \ref{weighted-01-pop} .
+
+%The following Theorem show that The pairwise loss in (2) has equivalent pointwise form for each of the three types of weights. We used the pointwise form in Stage 1 descbribe in \eqref{eq:stage1}:
+
+%The pairwise structure of \eqref{weighted-01-pop} aligns with the fundamental objective of learning to rank: to construct a scoring function $g$ that  recovers the relative order of the targets, by learning that $g(X) > g(X') \implies Y > Y'$. In this work we study three specific weighting functions which lead to three different ranking losses. $w(Y, Y') \equiv 1$, which simplifies to the pairwise ranking loss \eqref{eq:01-pop} \citep{clemenccon2008ranking}; (ii) the Absolute Gap weight $w(Y, Y') \equiv |Y - Y'|$, which incorporates the magnitude of difference between targets \citep{agarwal2005stability}; and (iii) the Rank Gap weight $w(Y, Y') \equiv |F_Y(Y) - F_Y(Y')|$, which is based on the label distribution \citep{menon2016bipartite}. While the introduction of these weights allows for a flexible ranking objective, it does not immediately reveal how the learning dynamics change compared  to \eqref{eq:01-pop}. A clearer interpretation emerges from considering the pointwise equivalent form of each of the three losses. To this end, Theorem~\ref{thm:equivalence} establishes the pointwise expressions for \eqref{weighted-01-pop}, providing the theoretical foundation for the scoring rule used in the first stage of our framework, as described in \eqref{eq:stage1}.
+This pairwise formulation directly reflects the fundamental objective of learning to rank: constructing a scoring function $g$ that preserves the relative ordering of the targets. 
+Specifically, the loss uses an indicator function to penalize instances where the scores disagree with the true target order, thereby encouraging the condition  $g(X) > g(X') \;\Longrightarrow\; Y > Y'$ to hold with high probability.  Different choices of the weight function $w(Y,Y')$ leads to commonly used ranking losses: (i) the \emph{Uniform} weight $w(Y,Y') \equiv 1$ \citep{clemenccon2008ranking, burges2005learning};
+(ii) the \emph{Absolute Gap} weight $w(Y,Y') \equiv |Y-Y'|$ \citep{agarwal2005stability, wang2018lambdaloss};
+and (iii) the \emph{Rank Gap} weight $w(Y,Y') \equiv |F_Y(Y)-F_Y(Y')|$, where $F_Y$ denotes the distribution function of $Y$ \citep{menon2016bipartite}.
+These weighting schemes provide a flexible family of ranking objectives that emphasize different aspects of association between $Y$ and $g(X)$.
+
+The following theorem establishes equivalent pointwise representations of loss \eqref{weighted-01-pop} under these weighting functions. These representations provide the theoretical basis for using the pointwise ranking loss in Stage~1 in \eqref{eq:stage1}. The proof of Theorem 1 is provided in Appendix \ref{proof:equivalence_of_losses}
+
+\begin{theorem}
+\label{thm:equivalence}
+Let $\mathcal{L}$ be the loss defined in \eqref{weighted-01-pop}.  Then we have the following equivalent representations $\mathcal{L}_{\textup{uni}}$, $\mathcal{L}_{\textup{abs}}$, and $\mathcal{L}_{\textup{cdf}}$ based on three different choices of the weight $w(Y,Y')$:
+
+\begin{enumerate}
+    \item \textbf{Kendall's $\tau$:}
+    \label{Kendall}
+    \begin{addedblock}
+    If $w(Y,Y') = 1$, minimizing $\mathcal{L}$ with respect to $g$ is equivalent to minimizing $\mathcal{L}_{\textup{uni}}$, a linear transform of Kendall's rank correlation $\tau(Y, g(X)) \equiv 4\,\mathbb{E}\!\left[F_{Y,g(X)}(Y,g(X))\right]-1$ between $Y$ and $g(X)$, where $F_{Y,g(X)}$ denotes the joint CDF of $(Y,g(X))$ with marginals $F_Y$ and $F_{g(X)}$. 
+    
+    \begin{equation}
+        \mathcal{L}_{\textup{uni}}(Y, g(X)) = \frac{1}{2} ( 1 - \tau(Y, g(X)) ).
+    \end{equation}
+    \end{addedblock}
+
+    \item \textbf{Gini covariance:}
+    \label{Gini}
+    If $w(Y,Y') = |Y - Y'|$, minimizing $\mathcal{L}$ with respect to $g$ is equivalent to minimizing $\mathcal{L}_{\textup{abs}}$ involving the Gini covariance between $Y$ and the rank of $g(X)$:
+    \begin{equation}
+        \mathcal{L}_{\textup{abs}}(Y, g(X)) = c - 2\operatorname{Cov}(Y, F_{g(X)}(g(X))).
+    \label{eq: loss_abs}
+    \end{equation}
+    Here $c=\frac{1}{2}\mathbb{E}|Y-Y'|$, which does not affect optimization of $\mathcal{L}_{\textup{abs}}$ with respect to $g$. 
+    \item \textbf{Spearman's $\rho$:}
+    \label{Spearman}
+    If $w(Y,Y') = |F_Y(Y) - F_Y(Y')|$, minimizing $\mathcal{L}$ with respect to $g$ is equivalent to minimizing $\mathcal{L}_{\textup{cdf}}$ involving Spearman's rank correlation $\rho_S(Y, g(X)) \equiv 12\cdot\mathrm{Cov}(F_Y(Y),F_{g(X)}(g(X)))$ between $Y$ and $g(X)$:
+    \begin{equation}
+        \mathcal{L}_{\textup{cdf}}(Y, g(X)) = \frac{1}{6} ( 1 - \rho_S(Y, g(X)) ).
+    \end{equation}
+\end{enumerate}
+
+% \begin{remark}[Connection to U-Statistics]
+% Theorem~\ref{thm:equivalence} reveals a structural unification of these objectives through the lens of U-statistics \citep{hoeffding1948class}. While pointwise regression losses correspond to degree-1 U-statistics and general listwise objectives may require degree-$n$ statistics, our results establish that Kendall's $\tau$, Gini covariance, and Spearman's $\rho$ all admit representations as degree-2 U-statistics. Specifically, they minimize a pairwise risk of the form $U_n(g) = \binom{n}{2}^{-1} \sum_{i<j} h((x_i, y_i), (x_j, y_j))$, where the kernel $h$ is defined by the specific weight $w_{ij}$. This ensures that despite capturing global ranking properties, these objectives enjoy the favorable asymptotic properties of non-degenerate U-statistics, including $\sqrt{n}$-consistency and asymptotic normality \citep{clemenccon2008ranking}.
+% \end{remark}
+
+\end{theorem}
+Theorem~\ref{thm:equivalence} formalizes the interpretability of these weighted ranking losses by connecting them to classical statistical measures. (i) For $w=1$, the loss is a linear transformation of Kendall's $\tau$, whose pointwise representation depends on the joint CDF $F_{Y,g(X)}$. Thus, penalizing all discordant pairs equally is equivalent to maximizing the concordance between the target $Y$ and the score $g(X)$. (ii) For $w=|Y-Y'|$, the loss corresponds (up to a constant) to the negative Gini covariance. Weighting pairs by their outcome gap therefore emphasizes large discrepancies in Y, which is equivalent to maximizing the association between $Y$ and the rank of $g(X)$. The Gini covariance is widely used in actuarial science to assess the relationship between risk scores and insurance losses and is extensively studied by \citet{yitzhaki2012more}. (iii) For $w = |F_Y(Y) - F_Y(Y')|$, the loss is a linear transformation of Spearman's rank correlation $\rho_S$. Prioritizing pairs that are far apart in quantile space is therefore equivalent to maximizing the correlation between the ranks of $Y$ and $g(X)$. This variant captures the relative distribution of the target while remaining less sensitive to extreme values than gap-weighted objectives.
+
+%The choice $w=1$ recovers the classical pairwise ranking loss. This objective penalizes every misordered pair equally, regardless of the magnitude of their label difference. As established in Theorem~\ref{thm:equivalence}, this loss acts as a direct proxy for Kendall's $\tau$: minimizing the risk is equivalent to maximizing the probability of concordance between the target $Y$ and the score $g(X)$. 
+
+%For $w=1$, as established in Theorem~\ref{thm:equivalence}, this loss acts as a direct proxy for Kendall's $\tau$: hence penalizing every misordered pair equally is mathematically equivalent to maximizing the probability of concordance between the target $Y$ and the model score $g(X)$.
+
+%When $w=|Y-Y'|$, the objective assigns higher penalties to misordered pairs that are distant in the target space. Theorem~\ref{thm:equivalence} reveals that this loss is, up to fixed constants, the negative of the Gini covariance between the response $Y$ and the score distribution $F_{g(X)}(g(X))$. This quantity has been extensively studied by \citet{yitzhaki2012more} and is widely used in actuarial science to quantify the association between a risk score and insurance losses.
+
+%With $w=|Y-Y'|$, the objective assigns higher penalties to misordering pairs that are distant in the target space. Theorem~\ref{thm:equivalence} reveals that this loss is, up to fixed constants, the negative of the \emph{Gini covariance} between the response $Y$ and the model score distribution $F_{g(X)}(g(X))$. This quantity has been extensively studied by \citet{yitzhaki2012more} and is widely used in actuarial science to quantify the association between a risk score and insurance losses. 
+
+%With $w = |F_Y(Y) - F_Y(Y')|$, Theorem~\ref{thm:equivalence} confirms that minimizing this loss is equivalent to maximizing Spearman's rank correlation $\rho_S$. 
+%This variant offers a compromise between the previous two by prioritizing pairs that are far apart in quantile space, yet it retains the robustness of rank-based methods by being invariant to extreme outlier values in $Y$ that might destabilize the Gini objective.
+
+We now characterize the family of ranking losses suitable for Stage~1 of the \textsc{CAIRO} framework. Specifically, we identify the subclass of consistent ranking losses--those that recover the correct ordering of the conditional mean as their optimal solution. To formalize this requirement, we define the following property:
+
+%Having established some examples of Ranking losses in both pairwise and pointwise form, we categorizes the exact family of ranking losses eligible to be used in Stage 1 of the CAIRO framework. We are specifically interested in the subclass of ranking losses that respect the Optimal-in-Rank-Order (ORO) property.
+%The success of the CAIRO framework relies on the first stage producing a score that strictly preserves the ordering of the true conditional expectation. If the learned ranking is incorrect, no monotonic calibration in the second stage can recover the true regression function. This creates a strict requirement for Stage 1: the training objective must guarantee that the learned score is order-consistent with the conditional mean. To formalize this requirement, we introduce the class of \emph{Optimal-in-Rank-Order} (ORO) objectives.
+\begin{definition}
+\label{def:ORO}
+  A loss function $\mathcal{L}$ is Optimal in Rank Order (ORO) if any of its associated population minimizer $g^{\star}$ from \eqref{eq:stage1} belongs to $\mathcal{G}'$ which is defined as:
+  \[
+    \mathcal{G}'\equiv\big\{h( m^{\star}):\ h:\mathbb{R}\to\mathbb{R}\text{ strictly monotone}\big\} \subset \mathcal{G}.
+  \]
+\end{definition}
+This property is central to the CAIRO framework because the success of Stage 2 calibration depends entirely on Stage 1 recovering the correct ordering of $m^\star$. Because isotonic regression applies a monotonic transformation, it can only adjust the scale of the scores $g^\star$, but cannot alter their ordering. Consequently, if the Stage~1 objective fails to satisfy the ORO property, the ordering induced by $g^\star$ will not align with that of the conditional mean $m^\star$; no subsequent calibration step can recover the true regression function $m^\star$. By restricting our attention to ORO losses, we ensure that the decoupled framework remains theoretically consistent with standard regression objectives.
+
+%While pointwise losses like Mean Squared Error (MSE) can produce ORO minimizers, we specifically utilize ranking losses due to their inherent robustness. Pointwise methods are often sensitive to specific noise distributions and outliers because they penalize exact numerical distances. In contrast, ranking losses focus exclusively on the sign of the difference between pairs. This scale-invariance allows ORO ranking losses to identify the correct ordering of the conditional mean even in environments with heavy-tailed noise
+The following theorem establishes that the three ranking losses introduced in Theorem~\ref{thm:equivalence} satisfy the ORO property under certain regularity conditions: 
+
+%While these objectives all target rank-based measures of associations, they require different assumptions about the underlying data distribution to be ORO losses. 
+\begin{theorem}
+\label{thm:oro_all_three}
+Let $(X,Y)$ and $(X',Y')$ be i.i.d. The weighted pairwise ranking losses in Theorem~\ref{thm:equivalence} are ORO under the following conditions:
+
+\begin{enumerate}
+    
+    \item \textbf{Kendall's $\tau$:} The uniform-weight loss
+    $\mathcal{L}_{\textup{uni}}$  is ORO if the distribution of $Y$ is pairwise consistent with  $m^\star$, i.e, 
+    \[
+    m^\star(x)>m^\star(x') \quad\Longleftrightarrow\quad \mathbb{P}(Y>Y'|X=x,\,X'=x') > 1/2 .
+    \]
+
+    \item \textbf{Gini covariance:} 
+    If $\mathbb{E}[|Y|] < \infty$, then the absolute-gap loss $\mathcal{L}_{\textup{abs}}$ is ORO. 
+    %The minimizer of the Gini-weighted loss is determined solely by the sign of $m^\star(x) - m^\star(x')$, requiring no further assumptions on the noise distribution.
+
+    \item \textbf{Spearman's $\rho$:} The rank gap loss
+    $\mathcal{L}_{\textup{cdf}}$  is ORO under an additive-noise model:
+    \[
+    Y=m^\star(X)+\varepsilon,
+    \]
+    where $\varepsilon \perp X$ and $\varepsilon$ has a continuous, strictly increasing CDF.
+\end{enumerate}
+\end{theorem}
+
+\begin{remark}
+    Theorem~\ref{thm:oro_all_three} highlights how different ranking objectives rely on distinct structural assumptions to ensure order recovery. (i) As shown in the proof of Theorem \ref{thm:oro_all_three} in Appendix \ref{proof_of_oro}, the Gini covariance objective is governed directly by the difference in conditional means; consequently, it satisfies the ORO property under minimal moment conditions. (ii) The Kendall objective targets the probability of concordance and requires that the probability of pairwise dominance aligns with the ordering of the means. (iii) the Spearman objective operates in quantile space. Because the ordering of expected quantiles need not coincide with the ordering of expectations, it requires the stronger structural assumption of additive noise to guarantee the ORO property.
+\end{remark} 
+
+\begin{addedblock}
+\input{../paper/mrc_relation_remark.tex}
+\end{addedblock}
+
+
+\subsection{Stage 2: Calibration via Isotonic Regression}
+\label{sec:calibration}
+
+In Stage~2, we restore the scale of the regression function.  
+Recall that $m^\star(x)=\mathbb{E}[Y|X=x]$, and let $g^\star$ denote the Stage~1 score.  
+Under any ORO loss, the optimal population ranker satisfies $g^\star(x) = h( m^\star(x))$ for some strictly monotone $h:\mathbb R\to\mathbb R.$ The goal of Stage~2 is therefore to learn a monotone map that inverts the unknown mapping $h$ and recovers $m^\star$.
+
+% This calibration is theoretically required for rank-based objectives. \citet{denuit2023gini} show that the Gini index is not a strictly consistent scoring function over general classes $\mathcal{G}$; it recovers the conditional mean only when the model is auto-calibrated, such that $\mathbb{E}[Y | g(X)] = g(X)$. Isotonic regression is guaranteed to satisfy this property. By composing the Stage 1 score with a monotone least-squares fit, \textsc{CAIRO} transforms an unconstrained ranker into a consistent regression estimator.
+
+Specifically, Stage~2 solves a shape-constrained least-squares problem over the class of functions $\mathcal{F}$. The population objective is defined as:
+\begin{equation}
+\label{eq:pop_iso_again}
+f^\star \in \arg\min_{f\in\mathcal F} \ \mathbb{E}\big[(Y - f(g^\star(X)))^2\big].
+\end{equation}
+where if $h$ is strictly increasing, then  $\mathcal F \equiv \{ f : \mathbb{R} \to \mathbb{R} \ \text{non-decreasing} \}$; If $h$ is strictly decreasing, then  $\mathcal F \equiv \{ f : \mathbb{R} \to \mathbb{R} \ \text{non-increasing}\}$.
+
+The following theorem shows that when the Stage 1 score $g^\star$ satisfies the ORO property, the resulting optimizer $g^\star$ of \eqref{eq:pop_iso_again} recovers the true regression function $m^\star$ ; proof is given in Appendix~\ref{composition_is_f_star}.
+
+\begin{theorem}
+\label{composition_is_f_star_statement}
+Assume $\mathbb{E}[Y^2] < \infty$ and suppose that the Stage~1 score satisfies $g^{\star}(x) = h(m^\star(x))$ for some strictly monotone $h:\mathbb R\to\mathbb R$. In Stage 2, let $f^{\star}$ be any minimizer of the monotone least-squares problem in \eqref{eq:pop_iso_again}.  
+Then it recovers the true regression function
+\[
+f^{\star}\big(g^{\star}(X)\big) = m^\star(X) .
+\]
+\end{theorem}
+
+\begin{remark}[Connection to auto-calibration and proper scoring]
+\label{rmk:auto_calibration}
+A prediction function $m(X)$ is strictly auto-calibrated if it satisfies $m(X) = \mathbb{E}[Y | m(X)]$ \citep{kruger2021generic, gneiting2023regression}. The true conditional mean $m^\star(X) = \mathbb{E}[Y|X]$ naturally satisfies this property:
+$
+\mathbb{E}[Y | m^\star(X)] = \mathbb{E}[\mathbb{E}[Y | X] \mid m^\star(X)] = m^\star(X).
+$
+While the Stage~1 ranking objectives (such as the Gini covariance) excel at learning robust, scale-invariant representations, they are fundamentally improper scoring rules when evaluated over unconstrained function classes \citep{wuthrich2023model}; their raw outputs $g^\star(X)$ do not correspond to the true conditional expectation and are therefore not auto-calibrated.  Stage~2 resolves this  limitation by solving the monotone least-squares problem, isotonic regression explicitly estimates the conditional expectation $\mathbb{E}[Y | g^\star(X)]$ while preserving the order learned in Stage~1. As established in Theorem~\ref{composition_is_f_star_statement}, composing the uncalibrated ranker with this monotonic projection recovers $m^\star(X)$. 
+
+Consequently, \textsc{CAIRO} mathematically guarantees that the final predictions are auto-calibrated, effectively converting an improper ranking mechanism into a statistically rigorous regression estimator. Crucially, because isotonic regression estimates conditional expectations via local block-averaging, this auto-calibration property holds not just asymptotically, but strictly on the empirical training data, even when the Stage~1 ranker is estimated with finite-sample noise.
+\end{remark}
+
+%PLACEHOLDER: Notably, \citet{wuethrich2023autocalibration} examined the Gini covariance as a training objective and concluded that it is only proper when optimized over the class of \emph{auto-calibrated} functions. This condition is difficult to enforce in deep learning. However, it becomes a valid loss function for all deep learning models under CAIRO since the auto-calibrated property is recovered by the second stage
+
+%DISCUSSION on AUTO-CALIBRATION
+
+
+\section{Estimation and Algorithms}
+
+We now turn to the empirical implementation of the \textsc{CAIRO} framework. Given an i.i.d. sample $\{(x_i, y_i)\}_{i=1}^n$,  we replace the population objectives defined in Section~\ref{sec:our_method} with their empirical counterparts.
+
+The Stage 1 ranking losses involve indicator functions and are therefore non-differentiable. To enable gradient-based optimization, we derive empirical formulations in both pairwise and pointwise forms and introduce smooth surrogates. In Stage 2, we perform empirical isotonic regression to restore the scale of the learned scores.
+
+This section details the empirical objectives used in practice, the smoothing strategies that make them tractable, and the resulting computational complexity of the two-stage procedure.
+
+% We implement the \textsc{CAIRO} framework by approximating the population losses from Section \ref{sec:our_method} using an i.i.d. sample $\{(x_i, y_i)\}_{i=1}^n$. Since these objectives are non-differentiable, we derive empirical analogs in both pairwise and pointwise forms and apply smooth surrogates to enable gradient-based optimization. The second stage solves the empirical isotonic regression problem. This section formalizes these smoothing strategies and analyzes the resulting computational complexity.
+
+\paragraph{Pairwise empirical losses (Stage 1).} 
+We first consider the empirical version of the pairwise losses for Stage~1. Assuming no ties in the targets $y_i$'s, and symmetric weights $w_{ij}=w_{ji}\ge 0$, the empirical version of \eqref{weighted-01-pop} is defined as:
+\begin{equation}
+\label{eq:emp-oroloss}
+    \ell(y, g(x))
+    \equiv
+    \frac{1}{n(n-1)}\sum_{1\le i<j\le n}
+    w_{ij}\,
+    \mathbbm{1}\!\left\{(y_i-y_j)\big(g(x_i)-g(x_j)\big)\le 0\right\}.
+\end{equation}
+This formulation unifies the Stage~1 objectives at the empirical level through the choice of $w_{ij}$. Specifically, we utilize three weights: (i) the uniform weights $w_{\text{uni}} \equiv 1$, (ii) the absolute gap weights $w_{\text{abs}} \equiv |y_i - y_j|$, and (iii) the rank gap weights $w_{\text{cdf}} \equiv |\hat{F}_n(y_i) - \hat{F}_n(y_j)|$, where $\hat{F}_n$ is the empirical CDF of $Y$. For computational convenience, the loss \eqref{eq:emp-oroloss} can be equivalently written by isolating the misordered pairs (see proof in Appendix~\ref{app:emp-oroloss-eq}):
+\begin{equation}
+\label{eq:emp-oroloss-ordered}
+    \ell(y, g(x))
+    \;=\;
+    \frac{1}{n(n-1)}\sum_{i\ne j}
+    w_{ij}\,
+    \mathbbm{1}\{y_i>y_j\}\,\mathbbm{1}\{g(x_i)<g(x_j)\},
+\end{equation}
+The indicator functions in \eqref{eq:emp-oroloss-ordered} render the objective non-differentiable. To enable gradient-based optimization, we replace them with smooth surrogate functions. In particular, the indicator term admits the following upper bound:
+%Since the population losses in Theorem~\ref{thm:equivalence} are not directly observable, we approximate them using an i.i.d.\ sample $\{(x_i,y_i)\}_{i=1}^n$. Assuming no ties in the targets or scores, and symmetric weights $w_{ij}=w_{ji}\ge 0$, we define the empirical ranking loss as the plug-in estimate of \eqref{weighted-01-pop}:
+%\begin{equation}
+%\label{eq:emp-oroloss}
+%    \ell(y, g(x))
+%%    \equiv
+%   \frac{1}{n(n-1)}\sum_{1\le i<j\le n}
+%    w_{ij}\,
+%    \mathbbm{1}\!\left\{(y_i-y_j)\big(g(x_i)-g(x_j)\big)\le 0\right\}.
+%\end{equation}
+%This single template covers all of our Stage~1 population objectives now at the empirical level through the different choices of $w_{ij}$.  The loss~$\ell$ also admits the form:
+%\begin{equation}
+%\label{eq:emp-oroloss-ordered}
+%    \ell(y, g(x))
+%    \;=\;
+%    \frac{1}{n(n-1)}\sum_{i\ne j}
+%    w_{ij}\,
+%    \mathbbm{1}\{y_i>y_j\}\,\mathbbm{1}\{g(x_i)<g(x_j)\},
+%\end{equation}
+%whose derivation is given in Appendix~\ref{app:emp-oroloss-eq}. In practice  we use three specific plug-in schemes for the weights $w_{ij}$. The unweighted choice $w_{\text{uni}} \equiv 1$, the absolute gap weights $w_{\text{abs}} \equiv |y_i - y_j|$ and the rank gap weights $w_{\text{cdf}} \equiv |\hat{F}_Y(y_i) - \hat{F}_Y(y_j)|$. Eq.~\eqref{eq:emp-oroloss-ordered} provides an empirical non-differentiable loss function. Therefore, we proceed to replace the hard indicator with smooth surrogates to leverage both the robustness of the rank loss in \eqref{eq:emp-oroloss-ordered} and the computational efficiency associated with the surrogate.
+\begin{equation}
+\label{eq:weighted-logistic-bound}
+\mathbbm{1}\{g(x_i)<g(x_j)\}
+\;\le\;
+\log\!\left(1+e^{-\sigma\,(g(x_i)-g(x_j))}\right) .
+\end{equation}
+We refer to the right hand side of \eqref{eq:weighted-logistic-bound} as the log-sigmoid function (that is evaluated at $g(x_i)-g(x_j)$), where $\sigma>0$ is a hyperparameter that characterizes the shape of the sigmoid. The log-sigmoid function has been extensively used as a smooth, convex surrogate for the indicator function in recent literature. Substituting this bound into \eqref{eq:emp-oroloss-ordered} yields the following surrogate objective: 
+
+\begin{align}
+\label{eq:weighted-ranknet}
+\ell(y, g(x))
+\;\le\;
+\frac{1}{n(n-1)}\sum_{i\ne j}
+w_{ij}\mathbbm{1}\{y_i>y_j\}\,
+\log\!\left(1+e^{-\sigma\,(g(x_i)-g(x_j))}\right).
+\end{align}
+In practice, we minimize the right hand side of \eqref{eq:weighted-ranknet} as a differentiable approximation to the empirical ranking loss. As an upper bound it naturally decreases the true empirical loss function \eqref{eq:emp-oroloss-ordered}.
+
+It is worth noting that the surrogate loss in \eqref{eq:weighted-ranknet} reduces to the classical RankNet loss when one sets $w_{ij} = w_{\mathrm{uni}} = 1$. This observation highlights that RankNet admits two complementary interpretations: (i) as the cross-entropy loss of a probabilistic pairwise classifier modeling the posterior probability that $y_i > y_j$; and (ii) as a smooth convex surrogate for the pairwise misordering error, and therefore as a differentiable proxy for improving Kendall's $\tau$. This connection is important for the \textsc{CAIRO} framework. It shows that widely used ranking objectives such as RankNet fall within our ORO analysis and can therefore be used in Stage~1 while retaining the theoretical guarantees established earlier.
+ 
+ 
+ 
+
+
+%This approach has demonstrated strong empirical performance in producing effective ranking algorithms. Nevertheless, we also examine an alternative smoothing strategy.
+\begin{addedblock}
+\paragraph{Pointwise empirical losses (Stage 1).}  By Theorem~\ref{thm:equivalence}, all three Stage~1 losses admit pointwise interpretations. Kendall's $\tau$ has a pointwise form through the joint CDF $F_{Y,g(X)}$, while the Gini covariance and Spearman's $\rho$ reduce to marginal-rank covariances and therefore yield especially convenient empirical objectives. We now construct empirical counterparts of these covariance-based pointwise losses. To obtain sample versions, we replace the population distribution functions with their empirical analogues. Since the empirical CDF can be expressed through the rank operator~\eqref{eq:emp_cdf_is_rank}, the resulting objectives depend on the ranks of the predicted scores. However, the rank operator is piecewise constant and therefore has vanishing gradients almost everywhere. To enable gradient-based optimization, we replace it with a differentiable SoftRank approximation \citep{blondel2020fast,cuturi2019differentiable}.
+\end{addedblock}
+We illustrate this approach with the Gini covariance loss $\mathcal{L}_{\textup{abs}}$. Consider its empirical version: $\ell_{\textup{abs}}(y, g(x)) = -\,{\widehat{\mathrm{Cov}}}(y_i,\widehat F_{g(X)}(g(x_i))\big)$. We show in Appendix \ref{gini_form} that  $\ell_{\textup{abs}}$ may be written equivalently, up to additive and positive multiplicative (scalar) constants, as:
+\begin{equation}
+\ell_{\textup{abs}}(y, g(x))
+\;\equiv\;
+-\sum_{i=1}^n y_i\,\operatorname{rank}\!\big(g(x_i)\big).
+\label{eq:rank_form_of_gini_no_constants}
+\end{equation}
+
+% We can smooth \eqref{eq:rank_form_of_gini_no_constants} by replacing the \emph{rank} function with \emph{softrank} \citep{blondel2020fast, cuturi2019differentiable}, yielding the smooth objective  $\ell_\textup{soft-abs}$ defined as:
+
+To obtain a differentiable objective, we replace the rank operator with its smooth approximation, yielding
+\begin{equation}
+\label{eq: smooth_gini_loss}
+        \ell_\textup{soft-abs}(y, g(x))
+    \equiv\;-\sum_{i=1}^n y_i\,\operatorname{softrank}\!\big(g(x_i)\big), 
+\end{equation}
+
+\begin{remark*}
+    \eqref{eq:rank_form_of_gini_no_constants} has been studied by \citet{frees2011summarizing} and \citet{yitzhaki2012more} as a measure of association between risk scores and insurance losses. 
+    
+    In learning-to-rank, \citet{wang2018lambdaloss} used \eqref{eq:rank_form_of_gini_no_constants} to derive the equivalent pairwise representation \eqref{eq:emp-oroloss-ordered} with $w_{ij} = |y_i-y_j|$ and implemented it with log-sigmoid smoothing. To our knowledge, this work is the first to analyze \eqref{eq: smooth_gini_loss} as a differentiable pointwise loss function implemented via smooth rank approximations.
+\end{remark*}
+
+%\subsection{Empirical Isotonic Regression}
+\label{sec:calib-empirical}
+
+ 
+
+\paragraph{Empirical calibration (Stage 2).}
+Having learned a scoring rule $\hat{g}(x_i)$ from a Stage~1 loss for data $\{(x_i,y_i)\}_{i=1}^n$, we restore the target scale via empirical isotonic calibration. Specifically, we solve the empirical analogue of~\eqref{eq:pop_iso_again} on the dataset $\{(\hat{g}(x_i),y_i)\}_{i=1}^n$:
+\begin{equation}
+\label{eq:emp_iso}
+\min_{f \in \mathcal{F}}\ \frac{1}{n}\sum_{i=1}^n \big(y_i- f(\hat{g}(x_i))\big)^2
+\quad \text{s.t.}\quad f(\hat{g}(x_i))\le  f(\hat{g}(x_j))\ \text{whenever } \hat{g}(x_i)\le \hat{g}(x_j).
+\end{equation}
+Let $\tilde{f}$ denote the solution to \eqref{eq:emp_iso}. Because the Pool Adjacent Violators (PAV) algorithm fits piecewise-constant steps by taking the exact empirical average of the responses $y_i$ within each block, the resulting predictor $\hat{m}(x_i) = \tilde{f}(\hat{g}(x_i))$ is guaranteed to be strictly empirically auto-calibrated on the training set. This provides a robust statistical safety net: even if the finite-sample estimate $\hat{g}$ deviates from the true optimal ordering, the final predictions remain locally unbiased with respect to the learned representation. Since the fitted values are defined only at the observed scores $\hat{g}(x_i)$, we construct a continuous calibration map $\hat{f}$ via linear interpolation between adjacent fitted points and clip predictions outside the training range \citep{pedregosa2011scikit}.
+
+% In practice, we adopt the implementation from \citet{pedregosa2011scikit}, which linearly interpolates between the original fitted values, the $\tilde{f}(\hat{g}(x_i))$'s, and clips predictions outside the training range.
+
+
+
+
+ 
+\iffalse
+\subsection{Alternative Monotone Recalibration Maps}
+\label{sec:alt-calibration}
+
+Isotonic least squares is a natural default, but the \textsc{CAIRO} framework is not tied to a single recalibration method.  
+Any procedure that, in the large-sample limit, solves a constrained problem of the form
+\[
+f \in \arg\min_{t\in\mathcal M} \ \mathbb{E}\big[\ell\big(Y,t(S)\big)\big]
+\]
+for a mean-consistent loss $\ell$ can be substituted for PAV in Stage~2 without changing the underlying population objective.  
+We briefly outline several representative alternatives.
+
+\paragraph{Monotone spline and GAM-based calibrators.}
+One can restrict $\mathcal M$ to a smooth parametric or semi-parametric subclass $\mathcal M_{\mathrm{smooth}}$, such as monotone B-splines or shape-constrained generalized additive models.  
+Calibration then amounts to solving
+\[
+\min_{t\in\mathcal M_{\mathrm{smooth}}}\ \frac{1}{n}\sum_{i=1}^n \big(y_i-t(s_i)\big)^2
+\]
+subject to linear inequality constraints on spline coefficients that enforce monotonicity; see, e.g., \citet{meyer2008inference,scheipl2016generalized}.  
+These methods approximate the same population target as isotonic regression but trade exactness for a smoother calibration map and a controlled reduction in variance.
+
+\paragraph{Bregman-based monotone regression.}
+In non-Gaussian settings--e.g., count responses or heavy-tailed targets--it can be natural to replace the square in~\eqref{eq:pop_iso_again} by a task-specific Bregman divergence (such as Poisson deviance or Tweedie deviance). 
+Monotone regression with respect to these losses has been studied in the context of proper scoring rules and distributional regression; see, for instance, \citet{jordan2023isotonic,henzi2021isotonic}.  
+At the population level, such procedures still target $f(s)=\mathbb E[Y\mid S=s]$ when this mean function is non-decreasing.  
+Within \textsc{CAIRO}, they can be viewed as plug-in alternatives to squared-loss isotonic regression when the error structure or application suggests a different loss.
+\fi
+%\paragraph{Computational Considerations and Trade-offs.}
+%From a computational standpoint, the cost of \textsc{CAIRO} is dominated by Stage~1, as the calibration phase (Stage~2) is comparatively fast. Stage~2 relies on the Pool Adjacent Violators (PAV) algorithm \citep{barlow1972statistical}. To run PAV, we must first sort the $n$ data points by their scores, which takes $O(n \log n)$ time. Once sorted, the PAV algorithm makes a single linear pass over the data to fit the steps, which takes only $O(n)$ time. Because the sorting step is the bottleneck, the total complexity for calibration is $O(n \log n)$. Consequently, the overall efficiency depends entirely on the choice of the ranking surrogate in Stage~1. The pairwise approach (Method~1) scales as $O(n^2)$ with the batch size, while the pointwise approach (Method~2) scales as $O(n \log n)$. Therefore, the total computational cost of \textsc{CAIRO} is $O(n^2)$ when using the pairwise objective and $O(n \log n)$ when using the pointwise objective.
+
+\paragraph{Computational considerations.}
+The computational complexity of \textsc{CAIRO} is primarily determined by the choice of empirical loss in Stage~1. When optimizing pairwise objective \eqref{eq:weighted-ranknet}, log-sigmoid smoothing, requires computing differences across all pairs in a batch, yielding $O(n^2)$ complexity. Pointwise objectives \eqref{eq:rank_form_of_gini_no_constants}, is implemented using a differentiable \textit{softrank} operator. As shown by \citet{blondel2020fast}, this operator can be computed in $O(n \log n)$ time. 
+Stage~2 calibration is comparatively inexpensive. The isotonic regression problem can be solved in linear time using the Pool Adjacent Violators (PAV) algorithm once the scores are sorted \citep{barlow1972statistical}.The overall training complexity scales as $O(n^2)$ for pairwise losses and $O(n \log n)$ for pointwise losses.
+
+
+\section{Extension to Survival Analysis: Calibrating Right-Censored Outcomes}
+\label{sec:survival_extension}
+
+{\color{blue} We can extend the \textsc{CAIRO} framework to survival analysis, particularly for time-to-event data subject to right-censoring.  
+In standard regression, right-censoring obscures the true outcome, rendering pointwise losses like MSE
+inapplicable. However, classical survival objectives, such as the negative partial log-likelihood of the Cox
+proportional hazards model (Cox, 1972) or smoothed approximations of the concordance index (C-index),
+rely exclusively on the relative rank ordering of observed events among the risk set. These objectives are
+invariant to strictly increasing transformations of the baseline hazard and thus inherently satisfy the ORO property. Consequently, Stage 1 can robustly learn an order-preserving index $g^{\star}(X)$
+directly from censored data.
+
+
+For calibration in Stage 2, since the time-to-event data is right-censored, we can not use isotonic regression directly for calibration, we proposed different calibration methods based on different objectives.
+
+
+Recent decoupled approaches in survival analysis \cite{ashhad2026graft} attempt to learn a monotonic score using ranking surrogates, followed by a secondary one-dimensional Cox model for calibration. 
+However, this approach suffers from a fundamental double-misspecification. First, as acknowledged by the authors themselves, it rigidly imposes the Proportional Hazards assumption, artificially constraining the hazard ratios to remain constant over time. More critically, from the perspective of our ORO theory, calibrating a ranking score via a Cox model rigidly imposes a linear log-hazard functional form ($\log \lambda \propto \beta \cdot g$). Because scale-invariant ranking losses only recover the true signal up to an arbitrary, non-linear monotonic transformation $h(\cdot)$, a linear Cox calibration mathematically fails to non-parametrically invert $h(\cdot)$, thereby precluding true recovery of the target scale.  
+
+To bridge this critical gap, we   repurpose established techniques--traditionally used for marginal estimation and model evaluation--into dynamic post-hoc calibrators for learning.
+
+Let $T \in \mathbb{R}^+$ denote the true underlying survival time and $C \in \mathbb{R}^+$ denote the right-censoring time. We observe an independent and identically distributed (i.i.d.) sample of size $n$, denoted by $  \{(X_i, Y_i, \delta_i)\}_{i=1}^n$, where $X_i \in \mathcal{X} \subset \mathbb{R}^p$ is a vector of bounded covariates, $Y_i = \min(T_i, C_i)$ is the observed time, and $\delta_i = \mathbbm{1}\{T_i \le C_i\}$ is the event indicator.  The Cox regression model parameterizes the hazard function with a  score exponent $\lambda(t|X) = \lambda_0(t) e^{g(X)}$, where $\lambda_0(t) > 0$ is the true baseline hazard. It minimizes the following negative log-likelihood loss:
+\begin{align}
+\ell_{\textup{cox}}(g)
+&= - \log \prod_{i=1}^n
+\left(
+\frac{e^{g(x_i)}}{\sum_{j \in R_i} e^{g(x_j)}}
+\right)^{\delta_i},
+\end{align}
+where $R_{i}=\{j:Y_{j}\geq Y_{i}\}$ is the risk set at time $Y_{i}$. Based on the Law of Large Numbers for empirical processes, one can show that the finite-sample empirical Cox objective   $\ell_{\textup{cox}}(g)$ is asymptotically equivalent to the population loss $\mathcal{L}_{\textup{cox}}(g)$ \citep{andersen1982cox}, which represents the expected log-probability of failure given the risk set:
+\begin{equation}
+\label{eq:pop_cox_loss_app}
+    \mathcal{L}_{\textup{cox}}(g) = \mathbb{E}_{X, N, R} \left[ \int_0^\infty \left\{ -g(X) + \log \mathbb{E}_{X', R'} \Big[ R'(t) e^{g(X')} \Big] \right\} dN(t) \right],
+\end{equation}
+where $(X', Y', \delta')$ is an independent copy of $(X, Y, \delta)$,   
+$N(t) = \mathbbm{1}\{Y \le t, \delta=1\}$ is the right-continuous counting process for observed events and $R(t) = \mathbbm{1}\{Y \ge t\}$ is the predictable at-risk indicator process. 
+
+We show in the following theorem that the Cox population loss is essentially an ORO objective:
+\begin{theorem}[Cox Loss is ORO]
+\label{thm:cox_oro}
+Under regularity conditions (Assumptions A1--A3 in Appendix \ref{app:cox_extension_proofs}), the unique minimizer $g^\star(x)$ of $\mathcal{L}_{\textup{cox}}(g)$ satisfies $g^\star(x) = h(m^\star(x))$ for some strictly monotonically increasing function $h$, where $m^\star(x) = \mathbb{E}[T \mid X=x]$ is the true conditional expected survival time.  
+\end{theorem}
+
+\subsection{Monotonic Calibration under Right-Censoring}
+
+As established in Theorem \ref{thm:cox_oro}, Stage 1 ORO losses recover the true log-hazard strictly up to an arbitrary non-linear monotonic transformation $h(\cdot)$. Calibrating this effectively requires a fully non-parametric, shape-constrained estimator. However, standard Isotonic Regression relies on squared-error minimization, which fails under right-censoring due to underestimation bias. 
+
+1. Pseudo-observation isotonic calibration (For Expected Survival Time):While jackknife pseudo-observations \cite{andersen2010pseudo} have been used as direct training targets for neural networks \cite{zhao2021dnnsurv}, fitting them directly is notoriously unstable due to their high variance. We elegantly resolve this by confining pseudo-observations entirely to Stage 2. We transform the censored outcomes into $\tilde{Z}_i$ and perform a 1D Isotonic Regression over $\{(g^\star(x_i), \tilde{Z}_i)\}$. Crucially, the block-averaging nature of PAVA perfectly smooths the high variance of pseudo-observations, reducing complex survival calibration into a robust, fully-observed monotonic regression that guarantees unbiased scale recovery.
+
+2. IPCW-Weighted Isotonic Regression (For Fixed-Time Survival Probability):To calibrate the predicted survival probability at a specific clinical horizon $t^*$, we formulate a weighted variant of Isotonic Regression. By assigning Inverse Probability of Censoring Weights (IPCW) \cite{graf1999assessment} to the binary outcome $\mathbbm{1}\{T_i > t^*\}$, we theoretically ensure that the monotonic calibrator optimally non-parametricizes $h^{-1}(\cdot)$ without requiring proportional hazards assumptions.
+
+
+3. KM-PAVA Algorithm (An Adaptive Binning Calibrator):For full-distribution calibration, we propose a novel algorithmic extension of PAVA. Traditional PAVA performs arithmetic block-averaging to resolve monotonicity violations, which is invalid under censoring. In KM-PAVA, when adjacent blocks are merged, we compute the local Kaplan-Meier estimate within the merged block to determine the new step height. This essentially acts as an adaptive, data-driven binning mechanism--obsoleting arbitrary clinical decile binning--and establishes a distribution-free link function inversion.
+
+As established in Theorem 3, the optimal ranking score learned in Stage 1 satisfies $g^\star(x) = h(m^\star(x))$ for some unknown, strictly monotonic link function $h(\cdot)$. In standard continuous regression, Stage 2 utilizes isotonic regression to non-parametrically invert $h(\cdot)$ by minimizing the squared error. However, under right-censoring, observing $Y_i = \min(T_i, C_i)$ instead of $T_i$ introduces a severe underestimation bias, rendering standard least-squares calibration theoretically invalid. 
+
+To preserve the fully non-parametric, distribution-free nature of the CAIRO framework, we introduce three statistically rigorous calibration mechanisms. These methods effectively bypass the censoring mechanism, enabling the recovery of strictly auto-calibrated survival metrics without imposing restrictive parametric assumptions (e.g., secondary proportional hazards models) during the calibration phase. Throughout this section, we impose the standard assumption of completely independent censoring, $C \perp\!\!\!\perp (T, X)$. Let $\mathcal{F}_{\text{mon}}$ denote the class of monotonic functions.
+
+% ==========================================
+% METHOD A: PSEUDO-OBSERVATIONS
+% ==========================================
+\subsection{Scheme A: Pseudo-Observation Isotonic Regression}
+
+\paragraph{Detailed Procedure.}
+Our primary approach aims to calibrate a continuous survival functional, specifically the Restricted Mean Survival Time (RMST) at a specified clinical horizon $\tau$, denoted as $\mu^\star(X) = \mathbb{E}[\min(T, \tau) \mid X]$. To achieve this, we employ the jackknife pseudo-observation technique \citep{andersen2010pseudo}. 
+
+Let $\hat{\theta}$ be the Kaplan-Meier (KM) estimate of the marginal RMST computed on the entire training cohort of size $n$. Let $\hat{\theta}^{-i}$ denote the exact same estimator computed on the reduced sample of size $n-1$ with the $i$-th subject excluded. For each subject $i=1, \dots, n$, we compute a continuous scalar termed the \emph{pseudo-observation}:
+\begin{equation}
+    \tilde{Z}_i = n\hat{\theta} - (n-1)\hat{\theta}^{-i}.
+\end{equation}
+In Stage 2, we pair the learned Stage 1 scores $g^\star(X_i)$ with these pseudo-observations, forming a fully observed, uncensored dataset $\{(g^\star(X_i), \tilde{Z}_i)\}_{i=1}^n$. We then perform a standard isotonic regression:
+\begin{equation}
+    \hat{f} = \arg\min_{f \in \mathcal{F}_{\text{mon}}} \frac{1}{n} \sum_{i=1}^n \left( \tilde{Z}_i - f(g^\star(X_i)) \right)^2.
+\end{equation}
+
+\paragraph{Technical Intuition: Linearization and Censoring Compensation.}
+The elegance of this approach lies in its ability to completely decouple the treatment of right-censoring from the isotonic calibration algorithm. Through the lens of functional von Mises calculus, the pseudo-observation $\tilde{Z}_i$ operates as a first-order Taylor expansion of the RMST functional. For an uncensored individual, $\tilde{Z}_i$ closely approximates their true observed time. For a censored individual, the jackknife procedure implicitly extracts the empirical influence function of the KM estimator. This influence function perfectly compensates for the probability mass lost due to censoring by imputing the conditionally expected survival time driven by the marginal distribution's tail. 
+
+Consequently, the right-censoring mechanism is completely absorbed and marginalized out during the computation of $\tilde{Z}_i$. Because $\tilde{Z}_i$ is a fully observable, continuous real number for \emph{every} subject regardless of their censoring status, the target variable space is transformed into a standard complete-data setting. This effectively "flattens" the censoring problem, allowing Stage 2 to strictly utilize the highly efficient $\mathcal{O}(n \log n)$ Pool Adjacent Violators Algorithm (PAVA) without any structural algorithmic modifications.
+
+\begin{theorem}[Consistency of Pseudo-Observation Calibration]
+\label{thm:pseudo_iso}
+Assume the censoring mechanism is completely independent of the survival time and covariates, $C \perp\!\!\!\perp (T, X)$. Let $\tilde{Z}_i$ be the pseudo-observations for the RMST up to $\tau$, and let the Stage 1 score satisfy the ORO property, $g^\star(X) = h(\mu^\star(X))$. As $n \to \infty$, the population minimizer of the pseudo-observation isotonic regression uniquely recovers the true conditional RMST:
+\[
+    \arg\min_{f \in \mathcal{F}_{\text{mon}}} \mathbb{E}\left[ \left( \tilde{Z} - f(g^\star(X)) \right)^2 \right] = \mu^\star(X).
+\]
+\end{theorem}
+
+\begin{proof}
+By the functional delta method and the theory of influence functions for the Kaplan-Meier estimator \citep{graw2009pseudo}, the pseudo-observation $\tilde{Z}_i$ is asymptotically equivalent to the true functional plus the empirical influence curve evaluated at subject $i$. It is a well-established result that under independent censoring, the pseudo-observations are conditionally asymptotically unbiased: $\mathbb{E}[\tilde{Z}_i \mid X_i] = \mu^\star(X_i) + o_p(1)$. 
+
+Consider the expected squared error objective parameterized by $f \in \mathcal{F}_{\text{mon}}$. By adding and subtracting $\mu^\star(X)$, we obtain:
+\begin{align*}
+    \mathbb{E}\left[ ( \tilde{Z} - f(g^\star(X)) )^2 \right] 
+    &= \mathbb{E}\left[ ( \tilde{Z} - \mu^\star(X) + \mu^\star(X) - f(g^\star(X)) )^2 \right] \\
+    &= \mathbb{E}\left[ ( \tilde{Z} - \mu^\star(X) )^2 \right] + \mathbb{E}\left[ ( \mu^\star(X) - f(g^\star(X)) )^2 \right] \\
+    &\quad + 2\mathbb{E}_X\Big[ ( \mu^\star(X) - f(g^\star(X)) ) \underbrace{\mathbb{E}[ \tilde{Z} - \mu^\star(X) \mid X ]}_{\to 0 \text{ asymptotically}} \Big].
+\end{align*}
+The cross-term vanishes asymptotically due to the conditional unbiasedness of the pseudo-observations. The first term is irreducible variance independent of the choice of $f$. Thus, optimizing $f$ over the pseudo-observations is asymptotically equivalent to minimizing the oracle uncensored risk $\mathbb{E}[ ( \mu^\star(X) - f(g^\star(X)) )^2 ]$. Since $h$ is strictly monotonic, $h^{-1} \in \mathcal{F}_{\text{mon}}$, ensuring the global minimizer is exactly $f^\star = h^{-1}$, which recovers $f^\star(g^\star(X)) = \mu^\star(X)$.
+\end{proof}
+
+
+% ==========================================
+% METHOD B: IPCW-WEIGHTED ISOTONIC REGRESSION
+% ==========================================
+\subsection{Scheme B: IPCW-Weighted Isotonic Regression}
+
+\paragraph{Detailed Procedure.}
+When clinical interest focuses on predicting the absolute survival probability at a fixed time horizon $t^*$ (e.g., 5-year survival probability, $\pi^\star(X) = \mathbb{P}(T > t^* \mid X)$), we formulate calibration as an Inverse Probability of Censoring Weighting (IPCW) isotonic regression.
+
+We dichotomize the unobserved true outcome as $D_i = \mathbbm{1}\{T_i > t^*\}$. Since $D_i$ is unobservable for subjects censored prior to $t^*$, we define an observable visibility indicator $\Delta_i^\ast = \mathbbm{1}\{Y_i > t^*\} + \mathbbm{1}\{Y_i \le t^*, \delta_i = 1\}$, which equals $1$ if and only if the subject's true status at $t^*$ is definitively known. Let $\hat{G}(t)$ denote the Kaplan-Meier estimate of the censoring survival function $\mathbb{P}(C > t)$. We assign a deterministic sample weight $W_i$ to each observation:
+\begin{equation}
+    W_i = \frac{\mathbbm{1}\{Y_i > t^*\}}{\hat{G}(t^*)} + \frac{\mathbbm{1}\{Y_i \le t^*, \delta_i = 1\}}{\hat{G}(Y_i-)}.
+\end{equation}
+Subjects censored before $t^*$ definitively receive $W_i = 0$. In Stage 2, we perform a sample-weighted isotonic regression over the observed proxy labels $\tilde{D}_i = \mathbbm{1}\{Y_i > t^*\}$:
+\begin{equation}
+    \hat{f} = \arg\min_{f \in \mathcal{F}_{\text{mon}}} \sum_{i=1}^n W_i \Delta_i^\ast \Big( \tilde{D}_i - f(g^\star(X_i)) \Big)^2.
+\end{equation}
+Because standard PAV algorithms natively support \texttt{sample\_weight} parameters, this optimization rigorously preserves the $\mathcal{O}(n \log n)$ computational efficiency.
+
+\begin{theorem}[Unbiasedness of the IPCW Isotonic Risk]
+\label{thm:ipcw_iso}
+Assume conditionally independent censoring $C \perp\!\!\!\perp T \mid X$ and strict positivity $\mathbb{P}(C > t^*) > 0$. The IPCW-weighted empirical risk is a conditionally unbiased surrogate for the true, unobservable full-data Brier score. Consequently, the weighted isotonic regression consistently recovers the true conditional survival probability $\pi^\star(X)$.
+\end{theorem}
+
+\begin{proof}
+Let $L(f, D_i) = (D_i - f(g^\star(X_i)))^2$ be the unobservable oracle loss. Notice that whenever $\Delta_i^\ast = 1$, the observable proxy $\tilde{D}_i$ is strictly equal to the true label $D_i$. We must demonstrate that $\mathbb{E}[W_i \Delta_i^\ast L(f, D_i) \mid X_i] = \mathbb{E}[L(f, D_i) \mid X_i]$. We evaluate the conditionally expected weight by partitioning the sample space into two mutually exclusive events based on the true survival time $T_i$:
+\begin{align*}
+    \mathbb{E}[W_i \Delta_i^\ast \mid X_i, T_i] 
+    &= \mathbb{E}\left[ \frac{\mathbbm{1}\{C_i > t^*\}}{G(t^*)} \mathbbm{1}\{T_i > t^*\} \;\middle|\; X_i, T_i \right] + \mathbb{E}\left[ \frac{\mathbbm{1}\{C_i \ge T_i\}}{G(T_i-)} \mathbbm{1}\{T_i \le t^*\} \;\middle|\; X_i, T_i \right].
+\end{align*}
+Under the assumption $C \perp\!\!\!\perp (T,X)$, we have $\mathbb{E}[\mathbbm{1}\{C_i > t^*\} \mid X_i, T_i] = G(t^*)$ and $\mathbb{E}[\mathbbm{1}\{C_i \ge T_i\} \mid X_i, T_i] = G(T_i-)$. The denominators cancel perfectly with the expected numerators:
+\begin{align*}
+    \mathbb{E}[W_i \Delta_i^\ast \mid X_i, T_i] 
+    &= \mathbbm{1}\{T_i > t^*\} \frac{G(t^*)}{G(t^*)} + \mathbbm{1}\{T_i \le t^*\} \frac{G(T_i-)}{G(T_i-)} = 1.
+\end{align*}
+Applying the law of iterated expectations over $T_i \mid X_i$ yields $\mathbb{E}[W_i \Delta_i^\ast L(f, D_i) \mid X_i] = \mathbb{E}[L(f, D_i) \mid X_i]$. The weighted isotonic regression therefore optimally minimizes the true unobservable quadratic risk, recovering the expectation $\mathbb{E}[D_i \mid g^\star(X_i)] = \mathbb{P}(T_i > t^* \mid g^\star(X_i)) = \pi^\star(X_i)$.
+\end{proof}
+
+
+% ==========================================
+% METHOD C: KAPLAN-MEIER LOCAL POOLING (KM-PAVA)
+% ==========================================
+\subsection{Scheme C: Local Kaplan-Meier Pooling (KM-PAVA)}
+
+\paragraph{Detailed Procedure.}
+While Methods A and B rely on transforming the target variables or the loss function, Method C acts directly at the algorithmic core of the calibrator. The standard PAVA iteratively locates adjacent blocks of predictions that violate the monotonicity constraint, merges them, and computes the arithmetic mean of the targets within the merged block. Under right-censoring, however, the arithmetic mean is a statistically invalid location estimator. 
+
+We introduce a structural algorithmic innovation termed \textbf{KM-PAVA}, which integrates survival estimation directly into the constraint optimization logic. The modification is strictly localized to the pooling step: when two adjacent blocks $\mathcal{B}_k$ and $\mathcal{B}_{k+1}$ violate the monotonicity constraint induced by the Stage 1 scores $g^\star(X)$, we merge them into a single block $\mathcal{B}_{\text{new}} = \mathcal{B}_k \cup \mathcal{B}_{k+1}$. Instead of computing an arithmetic mean, we extract the raw tuples $(Y_i, \delta_i)$ for all $i \in \mathcal{B}_{\text{new}}$ and compute a local Kaplan-Meier survival curve restricted entirely to this sub-population. The target functional (e.g., the RMST of the local KM curve, or the local survival probability) is then extracted and assigned as the constant calibrated step-height for $\mathcal{B}_{\text{new}}$.
+
+\begin{theorem}[KM-PAVA as the Shape-Constrained NPMLE]
+\label{thm:km_pava}
+Under right-censoring, the KM-PAVA procedure dynamically computes the exact Non-Parametric Maximum Likelihood Estimator (NPMLE) of the survival distributions subject to the monotonic shape constraint induced by $g^\star(X)$.
+\end{theorem}
+
+\begin{proof}
+Consider the non-parametric likelihood of right-censored data partitioned into contiguous blocks. For an arbitrary block $\mathcal{B}_k$, the localized likelihood is $\mathcal{L}_k = \prod_{i \in \mathcal{B}_k} \lambda_k(Y_i)^{\delta_i} \exp(-\Lambda_k(Y_i))$. We seek to maximize the global likelihood $\prod_k \mathcal{L}_k$ subject to a monotonicity constraint on the target functional $\theta_k$ (e.g., requiring $\theta_1 \ge \theta_2 \ge \dots \ge \theta_K$). 
+
+By the foundational max-min equivalence theorem of shape-constrained statistical inference \citep{barlow1972statistical}, if the unconstrained NPMLEs for two adjacent blocks violate the required order (i.e., $\hat{\theta}_k < \hat{\theta}_{k+1}$), the Fenchel duality of the constrained optimization problem dictates that these constraints are strictly binding. Consequently, the optimal parameters must be equal ($\theta_k = \theta_{k+1}$). 
+
+Thus, the constrained likelihood optimization mathematically reduces to finding the unconstrained NPMLE on the union of the two sets, $\mathcal{B}_k \cup \mathcal{B}_{k+1}$. Because the unconstrained NPMLE for survival data under random right-censoring is definitively the Kaplan-Meier estimator \citep{kaplan1958nonparametric}, substituting the arithmetic mean (the MLE for Gaussian data) with the local Kaplan-Meier estimator (the NPMLE for censored data) during the pooling step mathematically guarantees that the algorithm converges to the global profile maximum likelihood estimator under the isotonic constraints.
+\end{proof}
+
+
+}
+
+ 
+
+
+\section{Numerical Studies}
+\label{sec:experiments}
+
+\begin{addedblock}
+\input{../paper/numerical_studies_rewrite.tex}
+\end{addedblock}
+
+\subsection{Real-Data Analysis}
+\label{subsec:realdata_setup}
+
+To assess generalization, we evaluate our method on five regression benchmarks from the UCI Machine Learning Repository \citep{frank2010uci}: Auto MPG (AUTO), Communities and Crime (CCRI), Computer Hardware (COMP), Concrete Slump Test (CSLU), and Abalone (ABALONE). These datasets vary in size ($n \in [103, 4177]$) and dimensionality ($p \in [6, 102]$); see Table~\ref{tab:realdata}.
+
+\paragraph{Preprocessing.}
+We follow the preprocessing protocol of \citet{roy2012robustness}. For AUTO, we remove the high-cardinality \emph{car name} feature and incomplete cases (resulting in $n=392$). For CCRI, we discard predictors with more than $58\%$ missing values (resulting in $p=102$). For ABALONE, we regress strictly on continuous shell measurements to predict Age.  All datasets are devoid of missing values after preprocessing.
+
+\begin{addedblock}
+\paragraph{Results.}
+We compare \textsc{CAIRO} variants against \texttt{NN-MSE}, Random Forest, and LightGBM on the same five random splits used throughout the real-data benchmark. Table~\ref{tab:real_all} reports the resulting performance.
+\end{addedblock}
+
+First, we observe that \texttt{NN-MSE} exhibits significant instability, particularly on smaller datasets like AUTO and CSLU. In contrast, the \textsc{CAIRO} variants, specifically \texttt{RankNet-GiniW} and \texttt{GiniNet-SoftRank}, demonstrate much better results using identical neural network architectures. This suggests that the rank-based objectives in CAIRO variants may stabilize neural networks in low-data regimes.
+
+Second, \textsc{CAIRO} proves competitive with tree ensembles, which are typically dominant in tabular domains. On the \textit{Computer Hardware} (COMP) dataset, characterized by significant price outliers, \texttt{RankNet-GiniW} achieves an RMSE of $73.7$, substantially outperforming Random Forest ($87.8$) and LightGBM ($94.2$); this mirrors our synthetic results regarding the robustness of pairwise losses. On \textit{Concrete Slump} (CSLU), the smallest dataset ($n=103$), \textsc{CAIRO} outperforms all baselines (RMSE $3.52$ vs. $4.45$ for RF), indicating superior data efficiency. Finally, on the larger ABALONE task, \textsc{CAIRO} yields the highest ranking correlations ($\rho \approx 0.78$) and lowest RMSE ($2.12$). These results demonstrate that \textsc{CAIRO} effectively closes the performance gap between neural networks and tree-based models on tabular regression tasks.
+
+%Second, \textsc{CAIRO} variants remain competitive with tree-based models, which typically dominate tabular regression. On the \textit{Computer Hardware} (COMP) dataset, which contains significant price outliers, the \texttt{RankNet-GiniW} variant achieves an RMSE of $73.7$, outperforming both \texttt{RandomForest} ($87.8$) and \texttt{LightGBM} ($94.2$). This performance aligns with our synthetic findings. Finally, on the larger ABALONE task, \texttt{RankNet} yields the highest ranking correlations ($\rho \approx 0.78$) and lowest RMSE ($2.12$). These results demonstrate that the proposed framework allows neural networks to match or exceed the performance of state-of-the-art tree models on varied tabular benchmarks.
+
+\begin{table}[H]
+    \centering
+    \caption{Characteristics of the real datasets used in our study.}
+    \label{tab:realdata}
+    \renewcommand{\arraystretch}{1.05} % <-- slightly larger row spacing
+    \begin{tabular}{lcccc}
+        \toprule
+        Dataset & No.\ of data points ($n$) & No.\ of predictors ($p$) & No.\ of unique response values & Source \\
+        \midrule
+        AUTO     & 392  & 7   & 127 & UCI \\
+        CCRI     & 1994 & 102 &  98 & UCI \\
+        COMP     & 209  & 6   & 116 & UCI \\
+        CSLU     & 103  & 7   &  90 & UCI \\
+        ABALONE  & 4177 & 7   &  29 & UCI \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table} 
+    \centering
+    \caption{Real data performance on five UCI regression tasks.
+    Entries are mean (95\% CI) over five random 70/30 train--test splits.
+    Best value per dataset/metric is in bold.}
+    \label{tab:real_all}
+    \renewcommand{\arraystretch}{1} % <-- slightly larger row spacing
+    \begin{tabular}{llccc}
+        \toprule
+         & Model & Spearman's $\rho$ & Kendall's $\tau$ & RMSE \\
+        \midrule
+        Dataset & \multicolumn{4}{c}{AUTO (Auto MPG)} \\
+        \midrule
+        & \textsc{CAIRO}--GiniNet-SoftRank
+        & $0.870 \pm 0.022$ & $0.719 \pm 0.022$ & $4.244 \pm 0.294$ \\
+        & \textsc{CAIRO}--RankNet
+        & $0.933 \pm 0.011$ & $0.795 \pm 0.020$ & $3.188 \pm 0.204$ \\
+        & \textsc{CAIRO}--RankNet-GiniW
+        & $0.923 \pm 0.025$ & $0.787 \pm 0.027$ & $3.405 \pm 0.455$ \\
+        & NN-MSE
+        & $0.050 \pm 0.578$ & $0.026 \pm 0.434$ & $12.321 \pm 4.540$ \\
+        & Random Forest
+        & $\mathbf{0.937 \pm 0.015}$ & $\mathbf{0.798 \pm 0.017}$ & $\mathbf{2.994 \pm 0.239}$ \\
+        & LightGBM--MSE
+        & $0.935 \pm 0.015$ & $0.796 \pm 0.019$ & $3.010 \pm 0.230$ \\
+        \midrule
+        \multicolumn{5}{c}{CCRI (Communities and Crime)} \\
+        \midrule
+        & \textsc{CAIRO}--GiniNet-SoftRank
+        & $0.810 \pm 0.018$ & $\mathbf{0.640 \pm 0.020}$ & $0.142 \pm 0.002$ \\
+        & \textsc{CAIRO}--RankNet
+        & $0.757 \pm 0.013$ & $0.586 \pm 0.013$ & $0.160 \pm 0.005$ \\
+        & \textsc{CAIRO}--RankNet-GiniW
+        & $0.762 \pm 0.010$ & $0.593 \pm 0.011$ & $0.159 \pm 0.004$ \\
+        & NN-MSE
+        & $0.475 \pm 0.371$ & $0.358 \pm 0.280$ & $0.190 \pm 0.053$ \\
+        & Random Forest
+        & $\mathbf{0.817 \pm 0.015}$ & $0.631 \pm 0.016$ & $\mathbf{0.138 \pm 0.004}$ \\
+        & LightGBM--MSE
+        & $0.812 \pm 0.012$ & $0.626 \pm 0.013$ & $\mathbf{0.138 \pm 0.003}$ \\
+        \midrule
+        \multicolumn{5}{c}{COMP (Computer Hardware)} \\
+        \midrule
+        & \textsc{CAIRO}--GiniNet-SoftRank
+        & $0.784 \pm 0.042$ & $0.644 \pm 0.042$ & $105.055 \pm 64.484$ \\
+        & \textsc{CAIRO}--RankNet
+        & $0.800 \pm 0.072$ & $0.657 \pm 0.070$ & $89.822 \pm 31.436$ \\
+        & \textsc{CAIRO}--RankNet-GiniW
+        & $0.833 \pm 0.043$ & $0.688 \pm 0.045$ & $\mathbf{73.741 \pm 34.310}$ \\
+        & NN-MSE
+        & $0.392 \pm 0.363$ & $0.297 \pm 0.294$ & $334.020 \pm 142.277$ \\
+        & Random Forest
+        & $\mathbf{0.904 \pm 0.022}$ & $\mathbf{0.753 \pm 0.031}$ & $87.826 \pm 27.136$ \\
+        & LightGBM--MSE
+        & $0.808 \pm 0.077$ & $0.638 \pm 0.079$ & $94.157 \pm 27.191$ \\
+        \midrule
+        \multicolumn{5}{c}{CSLU (Concrete Slump Test)} \\
+        \midrule
+        & \textsc{CAIRO}--GiniNet-SoftRank
+        & $0.769 \pm 0.114$ & $0.604 \pm 0.106$ & $5.207 \pm 0.895$ \\
+        & \textsc{CAIRO}--RankNet
+        & $0.822 \pm 0.189$ & $0.717 \pm 0.145$ & $4.807 \pm 2.306$ \\
+        & \textsc{CAIRO}--RankNet-GiniW
+        & $\mathbf{0.900 \pm 0.013}$ & $\mathbf{0.760 \pm 0.027}$ & $\mathbf{3.522 \pm 0.420}$ \\
+        & NN-MSE
+        & $0.033 \pm 0.409$ & $0.038 \pm 0.320$ & $23.394 \pm 12.779$ \\
+        & Random Forest
+        & $0.890 \pm 0.030$ & $0.733 \pm 0.043$ & $4.445 \pm 0.394$ \\
+        & LightGBM--MSE
+        & $0.844 \pm 0.034$ & $0.682 \pm 0.042$ & $4.519 \pm 0.251$ \\
+        \midrule
+        \multicolumn{5}{c}{ABALONE} \\
+        \midrule
+        & \textsc{CAIRO}--GiniNet-SoftRank
+        & $0.631 \pm 0.040$ & $0.503 \pm 0.034$ & $2.610 \pm 0.042$ \\
+        & \textsc{CAIRO}--RankNet
+        & $\mathbf{0.781 \pm 0.014}$ & $\mathbf{0.637 \pm 0.013}$ & $\mathbf{2.115 \pm 0.042}$ \\
+        & \textsc{CAIRO}--RankNet-GiniW
+        & $0.778 \pm 0.015$ & $0.635 \pm 0.013$ & $2.116 \pm 0.036$ \\
+        & NN-MSE
+        & $0.634 \pm 0.028$ & $0.481 \pm 0.023$ & $3.255 \pm 0.102$ \\
+        & Random Forest
+        & $0.763 \pm 0.019$ & $0.606 \pm 0.017$ & $2.172 \pm 0.023$ \\
+        & LightGBM--MSE
+        & $0.761 \pm 0.015$ & $0.603 \pm 0.014$ & $2.192 \pm 0.045$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+\section{Discussions}
+
+We have introduced \textsc{CAIRO}, a framework that decouples regression into two distinct statistical tasks: learning the correct ordering of predictions and subsequently recovering their scale. By prioritizing the ranking objective, we circumvent the sensitivity of standard pointwise losses, such as Mean Squared Error (MSE), to outliers and heavy-tailed noise. Our theoretical analysis identifies a broad class of Optimal-in-Rank-Order (ORO) loss functions---including smooth approximations of Kendall's $\tau$ and Gini covariance---that guarantee consistency with the true conditional mean. We further prove that composing these rankers with isotonic calibration recovers the regression function $m^*(x) = \mathbb{E}[Y|X=x]$ at the population level. 
+
+The decoupling of order and scale provides two statistical benefits: robustness and auto-calibration. First, as demonstrated in our noise experiments, standard MSE minimization is often driven by a few high-leverage outliers. In contrast, rank-based objectives remain stable because they depend on the sign of pairwise differences or the rank of targets, rather than absolute magnitudes. Second, standard deep neural networks trained via MSE frequently suffer from local miscalibration. By deferring scale recovery to a Stage~2 isotonic projection, \textsc{CAIRO} structurally forces the predictions to be strictly empirically auto-calibrated. This converts flexible but historically uncalibrated neural representations into reliable, locally unbiased statistical forecasters. Our framework suggests a re-evaluation of standard regression practices.
+
+
+
+\paragraph{Limitations and future work.} While CAIRO is consistent at the population level, its finite-sample performance depends critically on the quality of the first-stage ranker. If the initial model fails to capture the true ordering of the conditional mean, no amount of monotonic calibration can recover the correct regression function. Additionally, the computational cost of pairwise ranking losses scales quadratically with batch size ($O(n^2)$), which may necessitate efficient sampling strategies or listwise approximations for very large datasets. Future work should explore more flexible calibration methods beyond global isotonic regression.   Finally, extending this two-stage decoupling to multivariate or structured output prediction remains an open and promising direction.
+ 
+
+\bibliography{references}
+\bibliographystyle{icml2025}
+\appendix
+\onecolumn
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% APPENDIX
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\section{Results and Proofs}
+For clarity of exposition, our theoretical analysis assumes that the score distribution is continuous, i.e., $\mathbb{P}\!\big(g(X)=g(X')\big)=0$. However, this assumption is not strictly necessary. In the presence of ties, our results regarding the Gini covariance and Spearman's correlation remain valid provided that the standard cumulative distribution function is replaced by the \textit{mid-distribution function} \citep{parzen2004quantile}. This function is defined as $\widetilde{F}_g(t)
+= \mathbb{P}\!\big(g(X)<t\big) + \frac{1}{2}\,\mathbb{P}\!\big(g(X)=t\big).$ Unlike the standard CDF, the mid-distribution ensures that the centered expectation property $\mathbb{E}\!\big[\widetilde{F}_g(g(X))\big]=1/2$ holds even when $g(X)$ is not continuous, thereby preserving the symmetry required for the covariance identities derived in Theorem~\ref{thm:equivalence}.
+
+\subsection{\textbf{Proof of Composition Theorem 
+(Theorem~\ref{composition_is_f_star_statement})}} \label{composition_is_f_star}
+
+\begin{proof}
+Let $g$ be the output from the first stage. Then $g = h(m^{\star})$ for a strictly increasing function $h$. We want to characterize the second-stage optimizer $f^{\star}$ such that 
+\[
+f^{\star} \in \arg\min_{t \in \mathcal{F}} \mathbb{E}\left[(Y - t(g(X)))^2\right].
+\]
+By adding and subtracting $m^\star$ in the objective and expanding the square, we obtain
+\begin{align*}
+    \mathbb{E}\!\left[(Y - t(g(X)))^2\right]
+&= \mathbb{E}\!\left[(Y - m^\star(X) + m^\star(X) - t(g(X)))^2\right] \\
+&= \mathbb{E}\!\left[(Y - m^\star(X))^2\right]
+   + \mathbb{E}\!\left[(m^\star(X) - t(g(X)))^2\right] \\
+&\quad + 2\,\mathbb{E}\!\left[(Y - m^\star(X))\,(m^\star(X) - t(g(X)))\right].
+\end{align*}
+
+The first term $\mathbb{E}\!\left[(Y - m^\star(X))^2\right]$ is independent of $t$, since it depends only on the true regression function $m^\star$.  For the last term, we apply the law of iterated expectations:
+\[
+\begin{aligned}
+\mathbb{E}_{Y, X}\!\left[(Y - m^\star(X))\,(m^\star(X) - t(g(X)))\right]
+&= \mathbb{E}_X\!\left[\mathbb{E}_{Y|X}\!\left[(Y - m^\star(X))\,(m^\star(X) - t(g(X))) \,|\, X\right]\right] \\
+&= \mathbb{E}_X\!\left[(m^\star(X) - t(g(X)))\,\mathbb{E}_{Y|X}\!\left[Y - m^\star(X) \,|\, X\right]\right] \\
+&= 0,
+\end{aligned}
+\]
+since $\mathbb{E}_{Y|X}[Y - m^\star(X) \mid X] = 0$. Hence the objective simplifies to
+\[
+\arg\min_{t \in \mathcal{F}} \mathbb{E}\left[(Y - t(g(X)))^2\right]
+= \arg\min_{t \in \mathcal{F}} \mathbb{E}\left[(m^{\star}(X) - t(g(X)))^2\right].
+\]
+This is minimized when $t(g(X)) = m^{\star}(X)$, i.e.,
+\[
+t(h(m^{\star}(X))) = m^{\star}(X) \quad\Longrightarrow\quad t = h^{-1}.
+\]
+The inverse exists since $h$ is strictly increasing, and $h^{-1} \in \mathcal{F}$ because it is non-decreasing as the inverse of a strictly increasing function. Therefore, the optimal second-stage function is $f^{\star} = h^{-1}$, and
+\begin{equation*}
+    f^{\star}(g(X)) = h^{-1}(h(m^{\star}(X))) = m^{\star}(X). \qedhere
+\end{equation*}
+\end{proof}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\iffalse
+\textbf{Proof of Equivalence between definitions \ref{gini_def} and \ref{wuthrich_gini}}
+\begin{proof}
+Starting from the CAP-based form of the Gini Index and the integral identity derived above,
+\begin{align}
+G^{\text{ML}}_{Y,f}
+&= \frac{\frac{1}{\mathbb{E}[Y]}\,\mathbb{E}\!\left[ Y\, F_{f(X)}\!\big(f(X)\big) \right] - \frac{1}{2}}
+        {\frac{1}{\mathbb{E}[Y]}\,\mathbb{E}\!\left[ Y\, F_Y(Y) \right] - \frac{1}{2}} \\
+&= \frac{\mathbb{E}\!\left[ Y\, F_{f(X)}\!\big(f(X)\big) \right] - \frac{\mathbb{E}[Y]}{2}}
+        {\mathbb{E}\!\left[ Y\, F_Y(Y) \right] - \frac{\mathbb{E}[Y]}{2}} \\
+&= \frac{\mathbb{E}\!\left[ Y\, F_{f(X)}\!\big(f(X)\big) \right] - \mathbb{E}[Y]\,\mathbb{E}\!\left[ F_{f(X)}\!\big(f(X)\big) \right]}
+        {\mathbb{E}\!\left[ Y\, F_Y(Y) \right] - \mathbb{E}[Y]\,\mathbb{E}\!\left[ F_Y(Y) \right]} \\
+&= \frac{\mathrm{Cov}\!\left(Y,\, F_{f(X)}\!\big(f(X)\big)\right)}
+        {\mathrm{Cov}\!\left(Y,\, F_Y(Y)\right)}.
+\end{align}
+
+By the probability integral transform (PIT), if the distributions of $f(X)$ and $Y$ are continuous then
+\(\mathbb{E}[F_{f(X)}(f(X))]=\mathbb{E}[F_Y(Y)]=\tfrac{1}{2}\)
+\end{proof}
+\fi
+
+\subsection{Useful Results}
+\label{oro_weighted}
+\begin{lemma}
+Let $(X,Y)$ and $(X',Y')$ be i.i.d.\ with finite second moments, then
+\[
+\mathbb{E}\!\left[(Y-Y')(X-X')\right] \;=\; 2\,\mathrm{Cov}(Y,X).
+\]
+\end{lemma}
+
+\begin{proof}
+\begin{align*}
+\mathbb{E}\!\left[(Y-Y')(X-X')\right]
+&= \mathbb{E}[YX]-\mathbb{E}[YX']-\mathbb{E}[Y'X]+\mathbb{E}[Y'X'] \\
+&= \mathbb{E}[YX]-\mathbb{E}[Y]\mathbb{E}[X']-\mathbb{E}[Y']\mathbb{E}[X]+\mathbb{E}[Y'X'] \\
+&= \mathbb{E}[YX]-\mathbb{E}[Y]\mathbb{E}[X]-\mathbb{E}[Y]\mathbb{E}[X]+\mathbb{E}[YX] \\
+&= 2\big(\mathbb{E}[YX]-\mathbb{E}[Y]\mathbb{E}[X]\big)
+= 2\,\mathrm{Cov}(Y,X).
+\end{align*}
+In the second line, independence across pairs gives
+$\mathbb{E}[YX']=\mathbb{E}[Y]\mathbb{E}[X']$ and
+$\mathbb{E}[Y'X]=\mathbb{E}[Y']\mathbb{E}[X]$.
+In the third line, i.i.d.\ across pairs yields
+$\mathbb{E}[Y'X']=\mathbb{E}[YX]$, $\mathbb{E}[X']=\mathbb{E}[X]$, and $\mathbb{E}[Y']=\mathbb{E}[Y]$.
+\end{proof}
+
+
+\begin{lemma}
+Let $X$ and $X'$ be i.i.d.\ real random variables with continuous cdf $F$. With
+$\operatorname{sgn}(t)=\mathbbm{1}\{t>0\}-\mathbbm{1}\{t<0\}$, we have
+\[
+\mathbb{E}\!\left[\operatorname{sgn}(X-X')\mid X\right]=2F(X)-1 \quad \text{a.s.}
+\]
+\end{lemma}
+
+\begin{proof}
+Starting with the decomposition $\operatorname{sgn}(X-X')=\mathbbm{1}\{X>X'\}-\mathbbm{1}\{X<X'\}$, we have
+\begin{align*}
+    \mathbb{E}[\operatorname{sgn}(X-X')|X] &= \mathbb{E}[\mathbbm{1}\{X>X'\}-\mathbbm{1}\{X<X'\}| X] \\
+    &= \mathbb{P}(X>X'|X)-\mathbb{P}(X<X'| X) \\
+    &= F(X) - (1-F(X)) \\
+    &= 2F(X) - 1 . \qedhere
+\end{align*}
+\end{proof}
+
+\begin{proposition}
+\label{equivalent_pairwise_form}
+Let $(X,Y)$ and $(X',Y')$ be i.i.d.\ with finite second moments and independent across pairs. Then
+%Assume $g(X)$ has a continuous cdf $F_g$ (so $\mathbb{P}(g(X)=g(X'))=0$).
+\[
+\mathrm{Cov}\!\left(Y,\,F_{g(X)}(g(X))\right)
+=\frac{1}{2}\,\mathbb{E}\!\left[(Y-Y')\,\mathbbm{1}\{\,g(X)>g(X')\,\}\right].
+\]
+\end{proposition}
+\begin{proof}
+Let $(X',Y')$ be an i.i.d.\ copy of $(X,Y)$.  Then %\colorgray{, and assume $\mathbb{P}\big(g(X)=g(X')\big)=0$ (this is automatic once $g(X)$ is continuous; just condition on $X'$ (or $X$) to see it) so that ties occur with probability zero.}
+\begin{align}
+    2\cdot\text{Cov}\big(Y, F_{g(X)}(g(X))\big) \notag 
+    &= 2\Big( \mathbb{E}\big[Y\, F_{g(X)}(g(X))\big] 
+              - \mathbb{E}[Y]\,\mathbb{E}\big[F_{g(X)}(g(X))\big] \Big) \notag \\
+    &= 2\Big( \mathbb{E}\big[Y\, F_{g(X)}(g(X))\big] - \tfrac{1}{2}\,\mathbb{E}[Y] \Big) \notag \\
+    &= 2\,\mathbb{E}\big[Y\, F_{g(X)}(g(X))\big] - \mathbb{E}[Y] \notag \\
+    &= 2\,\mathbb{E}\Big[ Y\, \mathbb{E}_{X'|Y,X}\big[\mathbbm{1}\{g(X') \le g(X)\}\mid Y, X\big]\Big] - \mathbb{E}[Y] \notag \\
+    &= 2\,\mathbb{E}\big[ Y\,\mathbbm{1}\{g(X') \le g(X)\} \big] - \mathbb{E}[Y]. \label{eq:alt-start}
+\end{align}
+where we have use independence of $Y$ and $X'$ to condition on $Y$ in the inner expectation in line 4. We also applied the law of total expectation between the pair $(Y, X)$ and $X'$ to obtain the last line. Now, by symmetry of the i.i.d.\ pairs $(X,Y)$ and $(X',Y')$, 
+\begin{align}
+    2\,\mathbb{E}\big[ Y\,\mathbbm{1}\{g(X') \le g(X)\} \big]
+    &= \mathbb{E}\big[ Y\,\mathbbm{1}\{g(X') \le g(X)\} \big]
+     + \mathbb{E}\big[ Y'\,\mathbbm{1}\{g(X) \le g(X')\} \big]. \label{eq:alt-split}
+\end{align}
+%Using $\mathbb{P}\big(g(X)=g(X')\big)=0$, 
+We may replace $\le$ by $<$ in the indicators. Combining
+\eqref{eq:alt-start} and \eqref{eq:alt-split}, we obtain
+\begin{align}
+    2\cdot\text{Cov}\big(Y, F_{g(X)}(g(X))\big)
+    &= \mathbb{E}\big[ Y\,\mathbbm{1}\{g(X') < g(X)\} \big]
+     + \mathbb{E}\big[ Y'\,\mathbbm{1}\{g(X) < g(X')\} \big]
+     - \mathbb{E}[Y] \notag \\
+    &= \mathbb{E}\big[ Y\,\mathbbm{1}\{g(X') < g(X)\} \big]
+     + \mathbb{E}\big[ Y'\,\mathbbm{1}\{g(X) < g(X')\} \big] \notag \\
+    &\quad - \mathbb{E}\big[ Y\big(\mathbbm{1}\{g(X') < g(X)\} + \mathbbm{1}\{g(X) < g(X')\}\big) \big] \notag \\
+    &= \mathbb{E}\big[ Y'\,\mathbbm{1}\{g(X) < g(X')\} \big]
+     - \mathbb{E}\big[ Y\,\mathbbm{1}\{g(X) < g(X')\} \big] \notag \\
+    &= \mathbb{E}\big[ (Y' - Y)\,\mathbbm{1}\{g(X) < g(X')\} \big] \notag \\
+    &= \mathbb{E}\big[ (Y - Y')\,\mathbbm{1}\{g(X) > g(X')\} \big].
+\end{align}
+This proves
+\[
+2\cdot\text{Cov}\big(Y, F_{g(X)}(g(X))\big)
+= \mathbb{E}\big[ (Y - Y')\,\mathbbm{1}\{g(X) > g(X')\} \big],
+\]
+which is the desired identity.
+\end{proof}
+
+
+\iffalse
+\begin{corollary}[Pairwise form with a common $f>f'$ indicator]
+Assume the setting of Proposition~\ref{equivalent_pairwise_form}. Then
+\[
+\mathrm{Cov}\!\left(Y,\,F_f(f(X))\right)
+=\frac{1}{2}\,\mathbb{E}\!\left[\,|Y-Y'|\,
+\Big(\mathbbm{1}\{Y>Y'\}\,\mathbbm{1}\{f(X)>f(X')\}
+-\mathbbm{1}\{Y<Y'\}\,\mathbbm{1}\{f(X)>f(X')\}\Big)\right].
+\]
+\end{corollary}
+
+\begin{proof}
+By Proposition~\ref{equivalent_pairwise_form},
+\[
+\mathrm{Cov}\!\left(Y,\,F_f(f(X))\right)
+=\frac{1}{2}\,\mathbb{E}\!\left[(Y-Y')\,\mathbbm{1}\{f(X)>f(X')\}\right].
+\tag{A.3}
+\]
+Write \(Y-Y' = |Y-Y'|\,\mathrm{sgn}(Y-Y')\) and use
+\(\mathrm{sgn}(Y-Y')=\mathbbm{1}\{Y>Y'\}-\mathbbm{1}\{Y<Y'\}\).
+Plugging into (A.3) gives
+\[
+\frac{1}{2}\,\mathbb{E}\!\left[|Y-Y'|\,\big(\mathbbm{1}\{Y>Y'\}-\mathbbm{1}\{Y<Y'\}\big)\,
+\mathbbm{1}\{f(X)>f(X')\}\right],
+\]
+which is
+\[
+\frac{1}{2}\,\mathbb{E}\!\left[\,|Y-Y'|\,
+\Big(\mathbbm{1}\{Y>Y'\}\,\mathbbm{1}\{f(X)>f(X')\}
+-\mathbbm{1}\{Y<Y'\}\,\mathbbm{1}\{f(X)>f(X')\}\Big)\right].
+\]
+\end{proof}    
+\fi
+
+\iffalse
+\begin{proposition}[CDF-gap--weighted misclassification equals a shifted Spearman target]
+\label{prop:cdf_gap_to_spearman}
+Let $(X,Y)$ and $(X',Y')$ be i.i.d.\ with $\mathbb P(Y=Y')=\mathbb P(f(X)=f(X'))=0$ and assume $F_Y$ and $F_f$ are continuous.
+Define $U:=F_Y(Y)$ and $V:=F_f(f(X))$ so that $U,U'\stackrel{\text{i.i.d.}}{\sim}\mathrm{Unif}(0,1)$ and $\mathrm{sgn}(Y-Y')=\mathrm{sgn}(U-U')$ a.s. 
+Consider the CDF-gap--weighted misranking risk
+\[
+\mathcal L_{\mathrm{cdf}}(f)
+:= \mathbb E\!\left[\,\big|F_Y(Y)-F_Y(Y')\big|\,
+\mathbbm{1}\!\left\{(Y-Y')\big(f(X)-f(X')\big)<0\right\}\right].
+\]
+Then
+\begin{equation}
+\label{eq:cdf_gap_cov_identity}
+\mathcal L_{\mathrm{cdf}}(f)
+\;=\;
+\frac{1}{2}\,\mathbb E\!\big[\,|U-U'|\,\big]
+\;-\; 2\,\mathrm{Cov}(U,V)
+\;=\;
+\frac{1-\rho_S(Y,f(X))}{6},
+\end{equation}
+where $\rho_S(Y,f(X))=12\,\mathrm{Cov}\!\big(F_Y(Y),F_f(f(X))\big)$ is Spearman's rank correlation between $Y$ and $f(X)$.
+Consequently, minimizing $\mathcal L_{\mathrm{cdf}}(f)$ is equivalent to maximizing Spearman's $\rho_S(Y,f(X))$.
+\end{proposition}
+
+\begin{proof}
+Since $U=F_Y(Y)$ is strictly increasing in $Y$ a.s., 
+\[
+\mathbbm{1}\!\left\{(Y-Y')(f-f')<0\right\}
+=
+\mathbbm{1}\!\left\{(U-U')(f-f')<0\right\}.
+\]
+Thus
+\[
+\mathcal L_{\mathrm{cdf}}(f)
+=\mathbb E\!\left[|U-U'|\,\mathbbm{1}\{(U-U')(f-f')<0\}\right].
+\]
+Define the (gap-)mass and the CDF-gap concordant/discordant parts:
+\[
+T:=\mathbb E[|U-U'|],\quad
+C:=\mathbb E\!\left[|U-U'|\,\Big(\mathbbm{1}\{U>U'\}\mathbbm{1}\{f>f'\}+\mathbbm{1}\{U<U'\}\mathbbm{1}\{f<f'\}\Big)\right],
+\]
+\[
+D:=\mathbb E\!\left[|U-U'|\,\Big(\mathbbm{1}\{U>U'\}\mathbbm{1}\{f<f'\}+\mathbbm{1}\{U<U'\}\mathbbm{1}\{f>f'\}\Big)\right].
+\]
+By partitioning cases (no ties), $T=C+D$, and by definition $\mathcal L_{\mathrm{cdf}}(f)=D$.
+
+Now apply Proposition~\ref{equivalent_pairwise_form} with $Y$ replaced by $U$:
+\[
+\mathrm{Cov}(U,V)
+=\tfrac12\,\mathbb E\!\left[(U-U')\,\mathbbm{1}\{f>f'\}\right].
+\tag{1}
+\]
+Using $|U-U'|\,\mathrm{sgn}(U-U')=U-U'$ and $\mathrm{sgn}(f-f')=2\mathbbm{1}\{f>f'\}-1$,
+\[
+\mathbb E\!\left[(U-U')\,\mathbbm{1}\{f>f'\}\right]
+=\tfrac12\,\mathbb E\!\left[|U-U'|\,\mathrm{sgn}(U-U')\,\mathrm{sgn}(f-f')\right].
+\tag{2}
+\]
+A direct expansion shows
+\[
+C-D
+=\mathbb E\!\left[|U-U'|\,\mathrm{sgn}(U-U')\,\mathrm{sgn}(f-f')\right].
+\tag{3}
+\]
+Combining (1)--(3) yields
+\[
+\mathrm{Cov}(U,V)=\tfrac14\,(C-D).
+\tag{4}
+\]
+Solving the system $T=C+D$ and $C-D=4\,\mathrm{Cov}(U,V)$ gives
+\[
+D=\tfrac12 T-2\,\mathrm{Cov}(U,V).
+\]
+Hence $\mathcal L_{\mathrm{cdf}}(f)=\tfrac12\,\mathbb E|U-U'|-2\,\mathrm{Cov}(U,V)$, which is the first equality in \eqref{eq:cdf_gap_cov_identity}.
+Since $U,U'\sim\mathrm{Unif}(0,1)$, $\mathbb E|U-U'|=\tfrac13$, so $\tfrac12\,\mathbb E|U-U'|=\tfrac16$.
+Finally, Spearman's rho satisfies $\rho_S(Y,f(X))=12\,\mathrm{Cov}(U,V)$, hence
+\[
+\mathcal L_{\mathrm{cdf}}(f)
+= \tfrac16 - 2\,\mathrm{Cov}(U,V)
+= \tfrac16 - \frac{\rho_S(Y,f(X))}{6}
+= \frac{1-\rho_S(Y,f(X))}{6}.
+\]
+\end{proof}
+\fi
+
+%\begin{proposition}[Sign-form identity for the pairwise misranking risk]
+%\label{prop:misrank_sign}
+%Assume $\mathbb P(Y=Y')=0$ and $\mathbb P(f(X)=f(X'))=0$. Then the population pairwise misranking risk
+%\[
+%\mathcal{L}(f)
+%=\mathbb{E}\!\left[\mathbbm{1}\!\left\{(Y-Y')\,\mathrm{sign}\!\big(f(X)-f(X')\big)\le 0\right\}\right]
+%=\mathbb{E}\!\left[\mathbbm{1}\!\left\{(Y-Y')\big(f(X)-f(X')\big)<0\right\}\right]
+%\]
+%admits the equivalent ``sign'' representation
+%\[
+%\mathcal{L}(f)
+%=\frac{1}{2}-\frac{1}{2}\,\mathbb{E}\!\left[\mathrm{sign}\!\big(Y-%Y'\big)\,\mathrm{sign}\!\big(f(X)-f(X')\big)\right].
+%\]
+%\end{proposition}
+
+%\begin{proof}
+%Under the no-ties assumptions,
+%\[
+%\mathbbm{1}\!\left\{(Y-Y')\big(f(X)-f(X')\big)<0\right\}
+%=\frac{1-\mathrm{sign}\!\big(Y-Y'\big)\,\mathrm{sign}\!\big(f(X)-f(X')\big)}{2}.
+%\]
+%Taking expectations yields
+%\[
+%\mathcal L(f)
+%=\mathbb E\!\left[\frac{1-\mathrm{sign}(Y-Y')\,\mathrm{sign}(f(X)-f(X'))}{2}\right]
+%=\frac12-\frac12\,\mathbb E\!\left[\mathrm{sign}(Y-Y')\,\mathrm{sign}(f(X)-f(X'))\right].
+%\]
+%\end{proof}
+% This version avoids introducing auxiliary variables (no U,V,S,S').
+% It also explicitly announces (A1) and reuses Proposition~\ref{equivalent_pairwise_form}
+% to replace the earlier sign/CDF lemma machinery.
+
+\subsection{Proof of Theorem~\ref{thm:equivalence}} \label{proof:equivalence_of_losses}
+\begin{proof}
+For any nonnegative symmetric weight $w(Y,Y')$ with $\mathbb{E}[w(Y,Y')]<\infty$, define
+\begin{align}
+\mathcal{L}(g) &\equiv\mathbb{E}\!\left[w(Y,Y')\,\mathbbm{1}\!\left\{(Y-Y')\,\operatorname{sign}\!\big(g(X)-g(X')\big)\le 0\right\}\right] \nonumber \\
+    &= \mathbb{E}\!\left[w(Y,Y')\,\mathbbm{1}\!\left\{(Y-Y')\big(g(X)-g(X')\big)<0\right\}\right].
+\label{base_eq}
+\end{align}
+
+% ------------------------------------------------------------
+\medskip
+\noindent\textbf{1) Uniform weight and Kendall's $\tau$.}
+Take $w(Y,Y')\equiv 1$, then $\mathcal{L}\xrightarrow{}\mathcal{L}_{\mathrm{uni}}$. Also apply the following transformation:
+
+\begin{equation}
+\label{eq: trick}
+    \mathbbm{1}\!\left\{(Y-Y')\big(g(X)-g(X')\big)<0\right\}
+=
+\frac{1-\operatorname{sign}(Y-Y')\,\operatorname{sign}\!\big(g(X)-g(X')\big)}{2} .
+\end{equation}
+Plugging this into \eqref{base_eq} yields
+\begin{align*}
+\mathcal{L}_{\mathrm{uni}}(g)
+=
+\frac12
+-\frac12\,\mathbb{E}\!\Big[\operatorname{sign}(Y-Y')\,\operatorname{sign}\!\big(g(X)-g(X')\big)\Big].
+\end{align*}
+\smallskip
+
+{\color{cairoaddedgreen}
+For the pointwise representation, we additionally assume $\mathbb{P}(Y=Y')=\mathbb{P}(g(X)=g(X'))=0$. Conditioning on $(Y,g(X))$ and using the i.i.d.\ copy $(Y',g(X'))$, we obtain
+\begin{align*}
+&\mathbb{E}\!\left[\operatorname{sign}(Y-Y')\,\operatorname{sign}(g(X)-g(X')) \mid Y,g(X)\right] \\
+&= \mathbb{P}(Y>Y',\,g(X)>g(X') \mid Y,g(X)) + \mathbb{P}(Y<Y',\,g(X)<g(X') \mid Y,g(X)) \\
+&\quad - \mathbb{P}(Y>Y',\,g(X)<g(X') \mid Y,g(X)) - \mathbb{P}(Y<Y',\,g(X)>g(X') \mid Y,g(X)) \\
+&= F_{Y,g(X)}(Y,g(X)) + \big(1-F_Y(Y)-F_{g(X)}(g(X))+F_{Y,g(X)}(Y,g(X))\big) \\
+&\quad - \big(F_{g(X)}(g(X))-F_{Y,g(X)}(Y,g(X))\big) - \big(F_Y(Y)-F_{Y,g(X)}(Y,g(X))\big) \\
+&= 4F_{Y,g(X)}(Y,g(X))-2F_Y(Y)-2F_{g(X)}(g(X))+1.
+\end{align*}
+Taking expectations gives
+\begin{align*}
+    \tau\big(Y,g(X)\big)
+    &\equiv
+    \mathbb{E}\!\Big[\operatorname{sign}(Y-Y')\,\operatorname{sign}\!\big(g(X)-g(X')\big)\Big] \\
+    &= \mathbb{E}\!\left[4F_{Y,g(X)}(Y,g(X))-2F_Y(Y)-2F_{g(X)}(g(X))+1\right] \\
+    &= 4\,\mathbb{E}\!\left[F_{Y,g(X)}(Y,g(X))\right]-1 \\
+    &= 1-2\cdot\mathcal{L}_{\mathrm{uni}}(g) .
+\end{align*}
+}
+
+
+% ------------------------------------------------------------
+\medskip
+\noindent\textbf{2) Absolute gap weight and the Gini covariance.}
+Take $w(Y,Y')=|Y-Y'|$, then $\mathcal{L}\xrightarrow{}\mathcal{L}_{\mathrm{abs}}$. 
+\begin{align}
+\mathcal{L}_{\mathrm{abs}}(g)
+&= \mathbb{E}\!\left[\,|Y-Y'|\,\mathbbm{1}\!\left\{(Y-Y')\big(g(X)-g(X')\big)<0\right\}\right] \nonumber \\
+%&= \mathbb{E}\!\left[\,|Y-Y'|\,\mathbbm{1}\!\left\{\operatorname{sign}(Y-Y')\neq \operatorname{sign}\!\big(g(X)-g(X')\big)\right\}\right] \nonumber \\
+&= \mathbb{E}\!\left[\frac{|Y-Y'|}{2}
+-\frac{|Y-Y'|\,\operatorname{sign}(Y-Y')\,\operatorname{sign}\!\big(g(X)-g(X')\big)}{2}\right] \nonumber \\
+&= \frac12\,\mathbb{E}|Y-Y'|
+-\frac12\,\mathbb{E}\!\Big[(Y-Y')\,\operatorname{sign}\!\big(g(X)-g(X')\big)\Big]
+\label{eq:abs-master}
+\end{align}
+where we used the transformation of \eqref{eq: trick} in the second line and also that $|Y-Y'|\operatorname{sign}(Y-Y')=Y-Y'$ to go from second to third equality. Now write $\operatorname{sign}\!\big(g(X)-g(X')\big) = \mathbbm{1}\{g(X)>g(X')\}-\mathbbm{1}\{g(X)<g(X')\}$
+Therefore, by plugging this in \eqref{eq:abs-master} and further manipulating by swapping the i.i.d.\ pairs $(X,Y)\leftrightarrow (X',Y')$ and using symmetry,
+\begin{align}
+\mathbb{E}\!\Big[(Y-Y')\,\operatorname{sign}\!\big(g(X)-g(X')\big)\Big]
+&=
+\mathbb{E}\!\Big[(Y-Y')\,\mathbbm{1}\{g(X)>g(X')\}\Big]
+-\mathbb{E}\!\Big[(Y-Y')\,\mathbbm{1}\{g(X)<g(X')\}\Big] \nonumber \\
+&= 2\,\mathbb{E}\!\Big[(Y-Y')\,\mathbbm{1}\{g(X)>g(X')\}\Big].
+\label{eq:sign-to-indicator}
+\end{align}
+Invoking Proposition~\ref{equivalent_pairwise_form}, we combine it with \eqref{eq:sign-to-indicator} to get
+\[
+\mathbb{E}\!\Big[(Y-Y')\,\operatorname{sign}\!\big(g(X)-g(X')\big)\Big]
+=
+4\,\mathrm{Cov}\!\left(Y,\,F_g(g(X))\right).
+\]
+Plugging into \eqref{eq:abs-master} yields the claimed identity:
+\[
+\mathcal{L}_{\mathrm{abs}}(g)
+=
+\frac12\,\mathbb{E}|Y-Y'|
+-2\,\mathrm{Cov}\!\left(Y,\,F_g(g(X))\right) .
+\]
+% ------------------------------------------------------------
+\medskip
+\noindent\textbf{3) CDF-rank gap weight and Spearman's $\rho_S$.}
+Take $w(Y,Y')=\big|F_Y(Y)-F_Y(Y')\big|$, then $\mathcal{L}\xrightarrow{}\mathcal{L}_{\mathrm{cdf}}$ where $F_Y$ is the CDF of $Y$.
+Under the assumption, $F_Y$ is continuous and strictly increasing on the support of $Y$, so $\operatorname{ sign}(Y-Y')=\operatorname{sign}\!\big(F_Y(Y)-F_Y(Y')\big)$. Consequently, 
+\begin{align}
+\mathcal{L}_{\mathrm{cdf}}(g)
+&= \mathbb{E}\!\left[\,|F_Y(Y)-F_Y(Y')|\,\mathbbm{1}\!\left\{(Y-Y')\big(g(X)-g(X')\big)<0\right\}\right] \nonumber \\
+&= \mathbb{E}\!\left[\,|F_Y(Y)-F_Y(Y')|\,\mathbbm{1}\!\left\{\operatorname{sign}(Y-Y')\operatorname{sign}(g(X)-g(X')\big)<0\right\}\right] \nonumber \\
+&=\mathbb{E}\!\left[\big|F_Y(Y)-F_Y(Y')\big|\,
+\mathbbm{1}\!\left\{\operatorname{sign}\!\big(F_Y(Y)-F_Y(Y')\big)\neq \operatorname{sign}\!\big(g(X)-g(X')\big)\right\}\right] \nonumber \\
+&=
+\frac12\,\mathbb{E}\big|F_Y(Y)-F_Y(Y')\big|
+-\frac12\,\mathbb{E}\!\Big[\big(F_Y(Y)-F_Y(Y')\big)\,\operatorname{sign}\!\big(g(X)-g(X')\big)\Big].
+\label{eq:cdf-master}
+\end{align}
+\smallskip
+
+\emph{First term.} $F_Y(Y)$ is $\mathrm{Unif}(0,1)$, so
+\[
+\mathbb{E}\big|F_Y(Y)-F_Y(Y')\big|
+=
+\int_0^1\!\!\int_0^1 |u-v|\,du\,dv
+=
+\frac13.
+\]
+
+\smallskip
+\emph{Second term.} Apply the sign-to-indicator identity \eqref{eq:sign-to-indicator}
+with $Y$ replaced by $F_Y(Y)$, and then apply Proposition~\ref{equivalent_pairwise_form} again, now with the random variable $F_Y(Y)$
+in place of $Y$:
+\begin{align}
+    \mathbb{E}\!\Big[\big(F_Y(Y)-F_Y(Y')\big)\,\operatorname{sign}\!\big(g(X)-g(X')\big)\Big] &= 2\,\mathbb{E}\!\Big[\big(F_Y(Y)-F_Y(Y')\big)\,\mathbbm{1}\{g(X)>g(X')\}\Big] \nonumber \\
+    &= 4\mathrm{Cov}\!\left(F_Y(Y),\,F_g(g(X))\right) . \nonumber
+\end{align}
+Substituting into \eqref{eq:cdf-master} yields
+\[
+\mathcal{L}_{\mathrm{cdf}}(g)
+=
+\frac12\cdot\frac13
+-2\,\mathrm{Cov}\!\left(F_Y(Y),\,F_g(g(X))\right)
+=
+\frac16
+-2\,\mathrm{Cov}\!\left(F_Y(Y),\,F_g(g(X))\right)
+\equiv \frac16-\frac{\rho_S(Y,g(X))}{6} .
+\]
+\medskip
+This completes the proof of all three claims.
+\end{proof}
+
+
+
+\subsection{Proof of Theorem \ref{thm:oro_all_three}: ORO property}
+\label{proof_of_oro}
+
+\begin{proof}
+Fix $(x,x')$ and consider the conditional pairwise ranking loss
+\[
+\mathcal{L}_w(Y, g(X); x,x')
+\;\equiv\;
+\mathbb{E}\!\left[
+w(Y,Y')\,
+\mathbbm{1}\!\left\{(Y-Y')\big(g(x)-g(x')\big)<0\right\}
+\;\bigm|\; X=x,\,X'=x'
+\right],
+\]
+where the inequality is strict under (A1) (no ties in $Y$). The optimal choice is to pick the sign of $g(x)-g(x')$
+that yields the smaller conditional risk; i.e.\ one should choose $g(x)>g(x')$ whenever
+\begin{align}
+&\mathbb{E}\!\left[
+w(Y,Y')\,\mathbbm{1}\{Y<Y'\}\,\big|\, X=x,X'=x'
+\right]
+\le
+\mathbb{E}\!\left[
+w(Y,Y')\,\mathbbm{1}\{Y>Y'\}\,\big|\, X=x,X'=x'
+\right] \nonumber \\
+%\label{eq:pairwise_decision_rule_rewrite}\\
+&\implies\quad
+\mathbb{E}\!\left[
+w(Y,Y')\big(\mathbbm{1}\{Y<Y'\}-\mathbbm{1}\{Y>Y'\}\big)\,\big|\, X=x,X'=x'
+\right]
+\le 0 \nonumber \\
+&\implies\quad
+\mathbb{E}\!\left[
+w(Y,Y')\,\operatorname{sign}(Y-Y')\,\big|\, X=x,X'=x'
+\right]
+\ge 0 \, . \nonumber
+\end{align}
+
+If we define the quantity $S_w(x,x')
+\equiv
+\mathbb{E}[
+w(Y,Y')\operatorname{sign}(Y-Y')
+|\; X=x,X'=x'
+],$
+then the pairwise optimal decision rule is $\mathrm{sign}\!\big(g(x)-g(x')\big)
+=
+\mathrm{sign}\!\big(S_w(x,x')\big)$.  Consequently, to prove the ORO property it suffices to show that, for each of the three weights,
+\begin{equation}
+\label{eq:key_alignment}
+\mathrm{sign}\!\big(S_w(x,x')\big)
+=
+\mathrm{sign}\!\big(m^\star(x)-m^\star(x')\big) .
+\end{equation}
+Indeed, if \eqref{eq:key_alignment} holds, then any population minimizer must order
+pairs $(x,x')$ the same way as $m^\star$, which implies $g^\star=h( m^\star)$ for some strictly
+increasing $h$, i.e.\ $g^\star\in\mathcal{G}'$. Conversely, any strictly increasing transform of $m^\star$ induces the same ordering and therefore achieves the same minimal conditional risk for all pairs $(x,x')$,
+yielding global optimality.
+
+\smallskip
+\noindent\textbf{Case 1: $w(y,y')\equiv 1$}.
+Here:
+\begin{align*}
+    S_{\mathrm{uni}}(x,x') 
+    &= \mathbb{E}\!\left[\mathrm{sign}(Y-Y')\mid X=x,X'=x'\right] \\
+    &= \mathbb{P}(Y>Y'\mid x,x')-\mathbb{P}(Y<Y'\mid x,x')\\
+    &= \mathbb{P}(Y>Y'\mid x,x')-(1-\mathbb{P}(Y>Y'\mid x,x'))\\
+    &= 2\,\mathbb{P}(Y>Y'\mid x,x')-1.
+\end{align*}
+where we have assumed the assumption of no ties in the third equation to sum both probabilities to 1. By assumption, $\mathbb{P}(Y>Y'\mid x,x')>\tfrac12$ if and only if
+$m^\star(x)>m^\star(x')$, which gives \eqref{eq:key_alignment} for $w\equiv 1$.
+
+\noindent\textbf{Case 2: $w(y,y') = |y-y'|$}.
+Here:
+\begin{align*}
+S_{\mathrm{abs}}(x,x')
+&= \mathbb{E}\!\left[\,|Y-Y'|\,\mathrm{sign}(Y-Y') \mid X=x,X'=x' \right] \\
+&= \mathbb{E}\!\left[\,Y-Y' \mid X=x,X'=x' \right] \\
+&= \mathbb{E}[Y\mid X=x] - \mathbb{E}[Y'\mid X'=x'] \\
+&= m^\star(x) - m^\star(x').
+\end{align*}
+In the second line we used the identity $|t|\,\mathrm{sign}(t)=t$. Therefore
+\[
+\mathrm{sign}\!\big(S_{\mathrm{abs}}(x,x')\big)
+=
+\mathrm{sign}\!\big(m^\star(x)-m^\star(x')\big),
+\]
+so \eqref{eq:key_alignment} holds for the absolute-gap weight.
+
+\smallskip
+\noindent\textbf{Case 3: $w(y,y') = |F_Y(y)-F_Y(y')|$}.
+Under Spearman's $\rho$ in case~\ref{Spearman}, $F_Y$ is continuous and strictly increasing, hence $\mathrm{sign}\!\big(F_Y(Y)-F_Y(Y')\big)=\mathrm{sign}(Y-Y')$, therefore:
+\begin{align*}
+S_{\mathrm{cdf}}(x,x')
+&= \mathbb{E}\!\left[\,|F_Y(Y)-F_Y(Y')|\,\mathrm{sign}(Y-Y') \mid X=x,X'=x' \right] \\
+&= \mathbb{E}\!\left[\,|F_Y(Y)-F_Y(Y')|\,\mathrm{sign}\!\big(F_Y(Y)-F_Y(Y')\big) \mid X=x,X'=x' \right] \\
+&= \mathbb{E}\!\left[\,F_Y(Y)-F_Y(Y') \mid X=x,X'=x' \right] \\
+&= \mathbb{E}\!\left[F_Y(Y)\mid X=x\right] - \mathbb{E}\!\left[F_Y(Y')\mid X'=x'\right] \\
+&= \eta(x) - \eta(x'),
+\end{align*}
+where $\eta(x)\equiv \mathbb{E}[F_Y(Y)\mid X=x]$. In the third line we used the identity
+$|t|\,\mathrm{sign}(t)=t$. It follows that
+\[
+\mathrm{sign}\!\big(S_{\mathrm{cdf}}(x,x')\big)
+=
+\mathrm{sign}\!\big(\eta(x)-\eta(x')\big),
+\]
+so the minimizers of $\mathcal{L}_{\mathrm{cdf}}$ are exactly the strictly increasing transforms
+of $\eta$. Under the (sufficient) part of the assumption where $Y=m^\star(X)+\varepsilon$ with $\varepsilon$
+independent of $X$ and with strictly increasing CDF, the family of conditional distributions
+$\{Y\mid X=x\}$ is strictly stochastically ordered by $m^\star(x)$. Since $F_Y$ is strictly
+increasing, the map $x\mapsto \eta(x)=\mathbb{E}[F_Y(Y)\mid X=x]$ is strictly increasing in
+$m^\star(x)$, i.e.\ there exists a strictly increasing $h$ such that $\eta=h( m^\star)$.
+Consequently,
+\[
+\mathrm{sign}\!\big(S_{\mathrm{cdf}}(x,x')\big)
+=
+\mathrm{sign}\!\big(m^\star(x)-m^\star(x')\big),
+\]
+and \eqref{eq:key_alignment} holds for the rank-gap weight as well. This completes the proof of all three claims.
+\end{proof}
+
+
+\subsection{Alternative Expression for the Empirical Weighted ranking loss}
+\label{app:emp-oroloss-eq}
+
+\begin{proposition}
+\label{prop:emp-oroloss-eq}
+Assume $\{(x_i,y_i)\}_{i=1}^n$ is such that there are no ties in $\{y_i\}$ and in $\{g(x_i)\}$, and $w_{ij}=w_{ji}\ge 0$ for all $i\ne j$. Then the empirical loss defined in \eqref{eq:emp-oroloss} satisfies
+\[
+    \ell(g)
+    \;=\;
+    \frac{1}{n(n-1)}\sum_{i\ne j}
+    w_{ij}\,
+    \mathbbm{1}\{y_i>y_j\}\,\mathbbm{1}\{g(x_i)<g(x_j)\}.
+\]
+\end{proposition}
+
+\begin{proof}
+The event $(y_i-y_j)\big(g(x_i)-g(x_j)\big)<0$ occurs if and only if exactly one of the two differences is reversed:
+\[
+\mathbbm{1}\!\left\{(y_i-y_j)\big(g(x_i)-g(x_j)\big)<0\right\}
+=
+\mathbbm{1}\{y_i>y_j,\,g(x_i)<g(x_j)\}
++\mathbbm{1}\{y_i<y_j,\,g(x_i)>g(x_j)\}.
+\]
+Plugging this into \eqref{eq:emp-oroloss} yields
+\begin{align*}
+\ell(g)
+&= \frac{1}{n(n-1)}\sum_{1\le i<j\le n}
+    w_{ij}\Big[
+    \mathbbm{1}\{y_i>y_j,\,g(x_i)<g(x_j)\}
+    +\mathbbm{1}\{y_i<y_j,\,g(x_i)>g(x_j)\}
+    \Big].
+\end{align*}
+
+Now consider the quantity $S$ defined as:
+\begin{align*}
+    S
+&\equiv \sum_{i\ne j}
+    w_{ij}\,
+    \mathbbm{1}\{y_i>y_j\}\,\mathbbm{1}\{g(x_i)<g(x_j)\}.\\
+    &= \sum_{1\le i<j\le n}
+\Big[
+    w_{ij}\,\mathbbm{1}\{y_i>y_j,\,g(x_i)<g(x_j)\}
+    +
+    w_{ji}\,\mathbbm{1}\{y_j>y_i,\,g(x_j)<g(x_i)\} \Big] \\
+    &= \sum_{1\le i<j\le n}
+w_{ij}\Big[
+    \mathbbm{1}\{y_i>y_j,\,g(x_i)<g(x_j)\}
+    +\mathbbm{1}\{y_i<y_j,\,g(x_i)>g(x_j)\}
+\Big].
+\end{align*}
+where we rewrote $S$ by grouping terms over unordered pairs $\{i,j\}$ with $i<j$ in the second line and used the fact that $y_j>y_i$ and $g(x_j)<g(x_i)$ are exactly the negations of $y_i>y_j$ and $g(x_i)<g(x_j)$ in the third. Comparing this with the expression for $\ell(g)$ above, we obtain
+\[
+\ell(g)
+= \frac{1}{n(n-1)}\,S
+= \frac{1}{n(n-1)}\sum_{i\ne j}
+    w_{ij}\,
+    \mathbbm{1}\{y_i>y_j\}\,\mathbbm{1}\{g(x_i)<g(x_j)\},
+\]
+which is exactly the claimed identity.
+\end{proof}
+
+\subsection{Rank based expression of the empirical Gini covariance loss} \label{gini_form}
+
+\begin{proof}
+We derive the rank-based expression for the empirical Gini-covariance objective used in Stage~1.  
+Let $\widehat{\mathrm{Cov}}(\cdot,\cdot)$ denote the empirical covariance, $\widehat{\mathrm{Cov}}(a_i,b_i)\equiv \frac{1}{n}\sum_{i=1}^n (a_i-\bar a)(b_i-\bar b),
+$ and define the empirical CDF of the scores by $\widehat F_{g(X)}(t)\equiv \frac{1}{n}\sum_{j=1}^n \mathbbm{1}\{g(x_j)\le t\}$. Note that: 
+\begin{align}
+\widehat F_{g(X)}(g(x_i))
+&= \frac{1}{n}\sum_{j=1}^n \mathbbm{1}\{g(x_j)\le g(x_i)\}
+ = \frac{\mathrm{rank}(g(x_i))}{n}.
+\label{eq:emp_cdf_is_rank}
+\end{align}
+Plugging \eqref{eq:emp_cdf_is_rank} into the loss gives
+\begin{align}
+\ell_{\textup{abs}}(y,g(x))
+&\equiv -2\,\widehat{\mathrm{Cov}}\!\Big(y_i,\frac{\mathrm{rank}(g(x_i))}{n}\Big) \notag\\
+&= -\frac{2}{n}\,\widehat{\mathrm{Cov}}\!\big(y_i,\mathrm{rank}(g(x_i))\big) \notag\\
+&= -\frac{2}{n}\cdot \frac{1}{n}\sum_{i=1}^n \big(y_i-\bar y\big)\Big(\mathrm{rank}(g(x_i))-\overline{\mathrm{rank}}\Big),
+\label{eq:cov_expand}
+\end{align}
+where $\overline{\mathrm{rank}}=\frac{1}{n}\sum_{i=1}^n \mathrm{rank}(g(x_i))$.
+Since $\{\mathrm{rank}(g(x_i))\}_{i=1}^n$ is a permutation of $\{1,\dots,n\}$, we have $\overline{\mathrm{rank}}=\frac{1}{n}\sum_{r=1}^n r = \frac{n+1}{2}.
+$
+Expanding \eqref{eq:cov_expand} and using $\sum_{i=1}^n (y_i-\bar y)=0$ yields
+\begin{align}
+\ell_{\textup{abs}}(y,g(x))
+&= -\frac{2}{n^2}\sum_{i=1}^n \big(y_i-\bar y\big)\Big(\mathrm{rank}(g(x_i))-\tfrac{n+1}{2}\Big) \notag\\
+&= -\frac{2}{n^2}\sum_{i=1}^n \big(y_i-\bar y\big)\,\mathrm{rank}(g(x_i)) 
+    + \frac{2}{n^2}\cdot \frac{n+1}{2}\sum_{i=1}^n \big(y_i-\bar y\big) \notag\\
+&= -\frac{2}{n^2}\sum_{i=1}^n \big(y_i-\bar y\big)\,\mathrm{rank}(g(x_i)) \notag\\
+&= -\frac{2}{n^2}\left(\sum_{i=1}^n y_i\,\mathrm{rank}(g(x_i))
+      -\bar y\sum_{i=1}^n \mathrm{rank}(g(x_i))\right) \notag\\
+&= -\frac{2}{n^2}\left(\sum_{i=1}^n y_i\,\mathrm{rank}(g(x_i))
+      -\bar y\cdot \frac{n(n+1)}{2}\right).
+\label{eq:gini_rank_final}
+\end{align}
+The second term in \eqref{eq:gini_rank_final} is a constant with respect to $g$, and therefore, up to an additive constant and a positive scalar, minimizing $\ell_{\textup{abs}}$ is equivalent to minimizing
+\[
+-\sum_{i=1}^n y_i\,\mathrm{rank}(g(x_i)),
+\]
+which is the desired rank-based form.
+\end{proof}
+
+ 
+
+\section{Detailed Proofs for Extension to Cox Regression}
+\label{app:cox_extension_proofs}
+
+
+\subsection{Proof of Theorem \ref{thm:cox_oro}}
+
+\begin{proof}
+
+Let $(\Omega, \mathcal{F}, \mathbb{P})$ be a complete probability space.  We define the right-continuous counting process for observed events as 
+$N(t) = \mathbbm{1}\{Y \le t, \delta=1\}$ and counting process for censoring events as $N^c(t) = \mathbbm{1}\{Y \le t, \delta = 0\}$. Define the predictable at-risk indicator process as $R(t) = \mathbbm{1}\{Y \ge t\}$. We operate under the natural filtration 
+$$\mathcal{F}_{t} = \sigma \Big\{ N(s), N^c(s), X: 0 \le s \le t \Big\}$$ The notation $\mathcal{F}_{t-}$ denotes the $\sigma$-algebra containing all information up to, but strictly excluding, the infinitesimal instant $t$ itself. 
+$$\mathcal{F}_{t-} = \bigvee_{s < t} \mathcal{F}_s = \sigma \left( \bigcup_{s < t} \mathcal{F}_s \right)$$
+
+We require the following standard assumptions:
+\begin{enumerate}[label=(\textbf{A\arabic*})]
+    \item \textbf{Independent Censoring:} Conditional on the covariates $X$, the censoring time $C$ is independent of the survival time $T$, i.e., $C \perp\!\!\!\perp T \mid X$. \textit{(Note: If the marginal Kaplan-Meier estimator is used in practice for IPCW weighting, we require the stronger assumption of completely independent censoring: $C \perp\!\!\!\perp (T, X)$).}
+    \item \textbf{True Proportional Hazards Model:} The true data-generating process follows a proportional hazards structure with true conditional hazard $\lambda^\star(t|X) = \lambda_0(t) e^{\eta^\star(X)}$, where $\lambda_0(t) > 0$ is the true baseline hazard and $\eta^\star(X)$ is the true log-hazard score.
+    \item \textbf{Regularity Conditions:} The baseline hazard $\lambda_0(t)$ is continuous and its cumulative baseline hazard $\Lambda_0(t) = \int_0^t \lambda_0(s)ds$ satisfies $\lim_{t \to \infty} \Lambda_0(t) = \infty$. Furthermore, $\mathbb{P}(Y \ge t \mid X) > 0$ for all $t$ where $\lambda_0(t) > 0$. Expectations involving $X$ and $T$ are assumed to be finite.
+\end{enumerate}
+
+We break the proof into five steps.
+
+\paragraph{Part 1: Martingale representation via the Doob-Meyer decomposition.} 
+Under Assumption (A1)
+$$\mathbb{P}(t \leq T < t + dt \mid T \geq t, C \geq t, X, \past)  =  \mathbb{P}(t \leq T < t + dt \mid T \geq t, X) $$
+Obviously $\mathbb{P}(dN(t) = 1 \mid \past) = 0$ when $Y < t$. Therefore, by Assumption (A1) we have 
+We know that for the counting processes
+$N(t) = \mathbbm{1}\{Y\leq t, \delta =1 \}$, it satisfies 
+\begin{equation*}
+\begin{aligned}
+\mathbb{E}(dN(t) \mid \past) &= \mathbb{P}(dN(t) = 1 \mid \past) \\
+  &= \mathbb{P}(t \leq Y < t + dt, \delta = 1 \mid \past) \\
+  &= \mathbb{P}(t \leq T < t + dt \mid \past)\\
+  & = \begin{cases}
+    \lambda^\star(t|X)dt, & Y \geq t \\
+    0,  & Y < t 
+  \end{cases}\\ 
+  &= R(t)\lambda^\star(t|X)dt.
+\end{aligned}    
+\end{equation*}
+Define the compensator as $$\Lambda(t|X) = \int_0^t R(s) \lambda^\star(s|X) ds = \int_0^t R(s) \lambda_{0}(s)e^{\eta^{\star}(X)} ds.$$
+Under Assumption (A1), the compensator differential $d\Lambda(t|X)$ is a predictable process. Its value at time $t$ is fully known based on the information in $\mathcal{F}_{t-}$. 
+$$\mathbb{E}(d\Lambda(t|X)\mid \past) = d\Lambda(t|X) =  R(t)\lambda^\star(t|X)dt = R(t) \lambda_0(t) e^{\eta^{\star}(X)} = \mathbb{E}(dN(t) \mid \past).$$  
+By the Doob-Meyer decomposition theorem, the submartingale counting process $N(t)$ can be uniquely decomposed into $$N(t) = \Lambda(t|X) + M(t), $$ where $M(t)$ is a zero-mean martingale with respect to $\mathcal{F}_t$, i.e. $\mathbb{E}(M(t+dt) \mid \mathcal{F}_t) = M(t)$.  Since 
+$$\mathbb{E}(dM(t) \mid \mathcal{F}_{t-}) = \mathbb{E}(dN(t) \mid \past) - \mathbb{E}(d\Lambda(t|X)\mid \past) =  0.$$ 
+We substitute $dN(t) = d\Lambda(t|X) + dM(t)$ into the objective \eqref{eq:pop_cox_loss_app}:
+\begin{equation}
+    \mathcal{L}_{\textup{cox}}(g) = \mathbb{E}_{X, N, R} \left[ \int_0^\infty H(t, X, g) \big( dM(t) + d\Lambda(t|X) \big) \right],
+\end{equation}
+where the integrand $H(t, X, g) = -g(X) + \log \mathbb{E}_{X', R'} [ R'(t) e^{g(X')} ]$. Because $H(t, X, g)$ depends only on the covariates and the deterministic limits of the expected risk set, it is left-continuous and adapted to $\mathcal{F}_{t-}$, making it a predictable process, therefore the expectation of a predictable, bounded process integrated with respect to a martingale is exactly zero, since $\sigma(X, R(t)) \subset \mathcal{F}_{t-}$:
+\begin{align*}
+    \mathbb{E}_{X, N, R} \left[ \int_0^\infty H(t, X, g) dM(t) \right] &= \int_0^\infty \mathbb{E}_{X, R(t)} \Bigg[ H(t, X, g) \cdot \mathbb{E}\Big[ dM(t)\mid X, R(t) \Big] \Bigg] \\
+    &= \int_0^\infty \mathbb{E}_{X, R(t)} \Bigg[ H(t, X, g) \cdot   \mathbb{E} \Big[ \mathbb{E}[dM(t) \mid \mathcal{F}_{t-}] \mid X, R(t) \Big] \Bigg] \\
+    &= \int_0^\infty \mathbb{E}_{X, R(t)} \Bigg[ H(t, X, g) \cdot   \mathbb{E} \Big[ 0 \mid X, R(t) \Big] \Bigg] \\
+     &= 0
+\end{align*}
+Consequently, the objective simplifies to the expectation with respect to the compensator $\Lambda(t|X)$. Applying Fubini's theorem to swap the expectation and the integral over time $t$, we obtain:
+\begin{align}
+    \mathcal{L}_{\textup{cox}}(g) &= \mathbb{E}_{X, N, R} \left[ \int_0^\infty  H(t, X, g) d\Lambda(t|X) \right] \notag \\
+    &= \mathbb{E}_{X, R} \left[ \int_0^\infty  H(t, X, g) R(t) \lambda_0(t) e^{\eta^\star(X)} dt \right] \notag \\
+    &= \mathbb{E}_{X, R} \left[ \int_0^\infty \left\{ -g(X) + \log \mathbb{E}_{X'} \Big[ \mathbb{E}[R'(t) \mid X'] e^{g(X')} \Big] \right\} R(t) \lambda_0(t) e^{\eta^\star(X)} dt \right] \notag \\
+    &= \int_0^\infty \mathbb{E}_X \Big[ \left\{ -g(X) + \log Z_g(t) \right\} \mathbb{E}[R(t) \mid X] e^{\eta^\star(X)} \Big] \lambda_0(t) dt, \label{eq:cox_step1_app}
+\end{align}
+where $Z_g(t) = \mathbb{E}_{X'} [ \mathbb{E}[R'(t) \mid X'] e^{g(X')} ]$ serves as the partition function for the modeled risk set.
+
+\paragraph{Part 2: Formulation as cross-entropy minimization.} 
+For any fixed time $t$ where the baseline hazard $\lambda_0(t) > 0$, we define two proper probability density functions over the covariate space $\mathcal{X}$ for the sub-population currently at risk. Let $f_X(x)$ be the marginal density of $X$. Let $\pi(t|x) = \mathbb{E}[R(t) | X=x]$ be the probability of being at risk. Let $Z^\star(t) = \mathbb{E}_X [ \pi(t | X) e^{\eta^\star(X)} ]$ be the true partition function. We define the true conditional risk density $p_t(x)$ and the modeled conditional risk density $q_t(x)$ as:
+\begin{align}
+    p_t(x) &= \frac{1}{Z^\star(t)} \pi(t|x) e^{\eta^\star(x)} f_X(x), \\
+    q_t(x) &= \frac{1}{Z_g(t)} \pi(t|x) e^{g(x)} f_X(x).
+\end{align}
+Taking the negative logarithm of the modeled density $q_t(x)$ yields:
+\begin{equation}
+    -\log q_t(x) = -\log \Big( \pi(t|x) f_X(x) \Big) - g(x) + \log Z_g(t).
+\end{equation}
+Rearranging this equation to isolate the terms appearing inside the curly braces of \eqref{eq:cox_step1_app}:
+\begin{equation}
+    -g(x) + \log Z_g(t) = -\log q_t(x) + \log \Big( \pi(t|x) f_X(x) \Big).
+\end{equation}
+We substitute this identity back into the inner expectation of \eqref{eq:cox_step1_app}, factor out $Z^\star(t)$, and express the integral with respect to the true density $p_t(x)$:
+\begin{align}
+    \mathbb{E}_X \left[ \left\{ -g(X) + \log Z_g(t) \right\} \pi(t | X) e^{\eta^\star(X)} \right] 
+    &= \int_{\mathcal{X}} \left\{ -g(x) + \log Z_g(t) \right\} \pi(t|x) e^{\eta^\star(x)} f_X(x) dx \notag \\
+    &= \int_{\mathcal{X}} \left\{ -\log q_t(x) + \log \Big( \pi(t|x) f_X(x) \Big) \right\} \pi(t|x) e^{\eta^\star(x)} f_X(x) dx \notag\\
+    &= Z^\star(t) \int_{\mathcal{X}} p_t(x) \left\{ -\log q_t(x) + \log \Big( \pi(t | x) f_X(x) \Big) \right\} dx \notag \\
+    &= Z^\star(t) \Big( H(p_t, q_t) + C_t \Big), \notag
+\end{align}
+where $H(p_t, q_t) = -\int p_t(x) \log q_t(x) dx$ is the cross-entropy, and $C_t = \int p_t(x) \log (\pi(t|x) f_X(x)) dx$ is a constant completely independent of $g$. Thus, minimizing $\mathcal{L}_{\textup{cox}}(g)$ is mathematically equivalent to finding minimizer $g^{\star}$ that minimizes the cross-entropy $H(p_t, q_t)$ pointwise for almost every $t$.
+
+\paragraph{Part 3: Characterizing the unique population minimizer.} 
+By Gibbs' inequality, the cross-entropy $H(p_t, q_t) = H(p_t) + \textup{KL}(p_t \| q_t)$ is uniquely minimized when the Kullback-Leibler divergence is zero, which occurs if and only if $q_t(x) = p_t(x)$ almost everywhere on the support. 
+
+Equating the true and modeled risk densities:
+\begin{equation}
+    \frac{\pi(t|x) e^{g^\star(x)} f_X(x)}{Z_{g^\star}(t)} = \frac{\pi(t|x) e^{\eta^\star(x)} f_X(x)}{Z^\star(t)}.
+\end{equation}
+For any $x$ where $\pi(t|x) f_X(x) > 0$, we cancel these common strictly positive terms:
+\begin{equation}
+    e^{g^\star(x)} = e^{\eta^\star(x)} \frac{Z_{g^\star}(t)}{Z^\star(t)}.
+\end{equation}
+Taking the natural logarithm of both sides gives:
+\begin{equation}
+    g^\star(x) = \eta^\star(x) + \log Z_{g^\star}(t) - \log Z^\star(t).
+\end{equation}
+Notice that $\log Z_{g^\star}(t) - \log Z^\star(t)$ is purely a function of time $t$. The only mathematical solution to this identity for all valid $x$ and $t$ is if both sides equal a global constant $c \in \mathbb{R}$. Therefore, the population minimizer is identified as:
+\begin{equation}
+\label{eq:g_star_eta_app}
+    g^\star(x) = \eta^\star(x) + c.
+\end{equation}
+
+\paragraph{Part 4: Strict monotonicity to the conditional expectation.} 
+To complete the proof of the ORO property, we prove that $g^\star(x) = h(m^\star(x))$ for some strictly decreasing function $h$. Under the proportional hazards assumption (A2), the conditional survival function is $S^\star(t|x) = \mathbb{P}(T > t \mid X=x) = \exp\big(-\Lambda_0(t) e^{\eta^\star(x)}\big)$. 
+
+Since survival times are non-negative, the expected survival time is the integral of the survival curve:
+\begin{equation}
+    m^\star(x) = \int_0^\infty S^\star(t|x) dt = \int_0^\infty \exp\Big(-\Lambda_0(t) e^{\eta^\star(x)}\Big) dt.
+\end{equation}
+Let us define the univariate mapping $\Psi: \mathbb{R} \to \mathbb{R}^+$ connecting the log-hazard score to the expected survival time:
+\begin{equation}
+    \Psi(z) = \int_0^\infty \exp\Big(-\Lambda_0(t) e^{z}\Big) dt.
+\end{equation}
+We analyze the monotonicity of $\Psi(z)$ by computing its first derivative. Under assumption (A3), the integrand is bounded and smoothly differentiable, satisfying the dominated convergence theorem. We differentiate under the integral sign:
+\begin{equation}
+    \frac{d}{dz} \Psi(z) = \int_0^\infty \frac{\partial}{\partial z} \exp\Big(-\Lambda_0(t) e^{z}\Big) dt = \int_0^\infty \underbrace{\exp\Big(-\Lambda_0(t) e^{z}\Big)}_{> 0} \underbrace{\Big( -\Lambda_0(t) e^{z} \Big)}_{< 0 \text{ for } t>0} dt.
+\end{equation}
+Because the cumulative baseline hazard $\Lambda_0(t) > 0$ for all $t > 0$, and the exponential function is strictly positive, the integrand is strictly negative on $(0, \infty)$. Therefore, the integral evaluates to a strictly negative number, meaning $\Psi'(z) < 0$ for all $z \in \mathbb{R}$. This guarantees $\Psi(z)$ is strictly monotonically decreasing.
+
+\paragraph{Part 5: Concluding the ORO function class.} 
+Because $\Psi$ is strictly decreasing, it is a bijective mapping onto its range and possesses a well-defined, strictly decreasing inverse $\Psi^{-1}$. Substituting $\eta^\star(x)$ into $\Psi$, we have $m^\star(x) = \Psi(\eta^\star(x))$, which implies:
+\begin{equation}
+    \eta^\star(x) = \Psi^{-1}\big(m^\star(x)\big).
+\end{equation}
+Substituting this relation back into \eqref{eq:g_star_eta_app}, we obtain:
+\begin{equation}
+    g^\star(x) = \Psi^{-1}\big(m^\star(x)\big) + c.
+\end{equation}
+Let $h(u) = \Psi^{-1}(u) + c$. Because $\Psi^{-1}$ is strictly decreasing and $c$ is a constant, the transformation $h:\mathbb{R} \to \mathbb{R}$ is strictly decreasing. Thus, we have established $g^\star(x) = h(m^\star(x))$, placing the minimizer within the ORO function class $\mathcal{G}'$. This concludes the proof.
+\end{proof}
+
+\subsection{Derivation of the pairwise empirical bound for the Cox loss}
+
+We now prove that the empirical Cox partial likelihood operates mathematically as a convex upper bound to a right-censored variant of the \textsc{CAIRO} pairwise \texttt{RankNet} loss.
+
+\begin{lemma} 
+\label{lem:log_subadd}
+For any finite set of non-negative real numbers $\{z_k\}_{k=1}^K$ where $z_k \ge 0$, it holds that:
+\begin{equation}
+    \log\left( 1 + \sum_{k=1}^K z_k \right) \le \sum_{k=1}^K \log(1 + z_k).
+\end{equation}
+\end{lemma}
+\begin{proof}
+By the properties of products, for any $z_k \ge 0$, $\prod_k (1 + z_k) = 1 + \sum_k z_k + \sum_{j < k} z_j z_k + \dots \ge 1 + \sum_k z_k$. Therefore $\log(1 + \sum_k z_k) \le \log(\prod_k (1+z_k)) = \sum_k \log(1+z_k)$.
+\end{proof}
+
+\begin{theorem}
+Assuming no tied event times, the empirical negative Cox partial log-likelihood $\ell_{\textup{cox}}(g)$ is bounded above by the log-sigmoid surrogate of the pairwise misordering risk:
+\begin{equation}
+    \ell_{\textup{cox}}(g)
+\le
+\sum_{i \neq j}\delta_j \mathbbm{1}\{y_i > y_j\}
+\log \left(
+1 + e^{-(g(x_i)-g(x_j))}
+\right).
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Because the hazard is parameterized as $\lambda(t \mid X) \propto e^{g(x)}$, the Cox partial likelihood contribution of an observed event $i$ is
+\[
+\frac{e^{g(x_i)}}{\sum_{j \in R_i} e^{g(x_j)}},
+\qquad
+R_i = \{j : y_j \ge y_i\}.
+\]
+Therefore, the empirical negative Cox partial log-likelihood (the loss to be minimized) is:
+
+\begin{align}
+\ell_{\textup{cox}}(g)
+&= - \log \prod_{i=1}^n
+\left(
+\frac{e^{g(x_i)}}{\sum_{j \in R_i} e^{g(x_j)}}
+\right)^{\delta_i}
+\\
+&= - \sum_{i=1}^n \delta_i
+\left(
+g(x_i) - \log \sum_{j \in R_i} e^{g(x_j)}
+\right)
+\\
+&= - \sum_{i=1}^n \delta_i
+\left(
+g(x_i) - \log \left[
+e^{g(x_i)} + \sum_{j \in R_i,\; j \neq i} e^{\,g(x_j)}
+\right]
+\right)
+\\
+&= - \sum_{i=1}^n \delta_i
+\left(
+g(x_i) - \log \left[
+e^{g(x_i)}
+\left(
+1 + \sum_{j \in R_i,\; j \neq i} e^{\,g(x_j)-g(x_i)}
+\right)
+\right]
+\right)
+\\
+&= \sum_{i=1}^n \delta_i
+\log \left(
+1 + \sum_{j:\; j \neq i} \mathbbm{1}\{y_j > y_i\} e^{\,g(x_j)-g(x_i)}
+\right).
+\label{eq:cox_listwise_app_1}
+\end{align}
+In the third line, we isolate the term $j=i$ from the risk-set sum; this is valid because $i \in R_i$ always holds. In the fourth line, we factor out $e^{g(x_i)}$ from the expression inside the logarithm. This shows that the Cox loss is naturally interpreted as a pairwise ranking loss: for each observed event $i$, the model compares the risk score of subject $i$ to the scores of all subjects who were still at risk at time $y_i$.
+Assuming that there are no ties, the condition $j \in R_i$ with $j \neq i$ is equivalent to $y_j > y_i$. Furthermore, applying Lemma~\ref{lem:log_subadd} to   \eqref{eq:cox_listwise_app_1} yields the upper bound
+\begin{equation}
+\label{eq:cox_pairwise_bound}
+\ell_{\textup{cox}}(g)
+\le
+\sum_{i \neq j}\delta_i \mathbbm{1}\{y_j > y_i\}
+\log \left(
+1 + e^{-(g(x_i)-g(x_j))}
+\right).
+\end{equation}
+% \begin{equation}
+% \ell_{\textup{cox}}(g)
+% \le
+% \sum_{i=1}^n
+% \delta_i
+% \sum_{j \in R_i,\; j \neq i}
+% \log \left(
+% 1 + e^{\,g(x_j)-g(x_i)}
+% \right).
+% \end{equation}
+% Assuming continuous event times such that no ties occur, the condition $j \in R_i, j \neq i$ strictly implies that $y_j > y_i$. The double summation aggregates over all pairs $(i, j)$ such that $\delta_i = 1$ and $y_j > y_i$. 
+% \begin{equation}
+%     \sum_{j \in R_i} \exp\big(g(x_j)\big) = \exp\big(-g(x_i)\big) + \sum_{j \in R_i, j \neq i} \exp\big(-g(x_j)\big).
+% \end{equation}
+% Factoring out $\exp(-g(x_i))$ from both terms yields:
+% \begin{equation}
+%     \sum_{j \in R_i} \exp\big(-g(x_j)\big) = \exp\big(-g(x_i)\big) \left( 1 + \sum_{j \in R_i, j \neq i} \exp\Big( -\big(g(x_j) - g(x_i)\big) \Big) \right).
+% \end{equation}
+% Substituting this factorized form back into the logarithm splits the product into an addition:
+% \begin{align}
+%     \log \left( \sum_{j \in R_i} \exp\big(-g(x_j)\big) \right) &= \log\big( \exp(-g(x_i)) \big) + \log \left( 1 + \sum_{j \in R_i, j \neq i} \exp\Big( -\big(g(x_j) - g(x_i)\big) \Big) \right) \notag \\
+%     &= -g(x_i) + \log \left( 1 + \sum_{j \in R_i, j \neq i} \exp\Big( -\big(g(x_j) - g(x_i)\big) \Big) \right).
+% \end{align}
+% Substitute this expanded logarithm back into the full loss function. The leading $+g(x_i)$ and the $-g(x_i)$ from the logarithm perfectly cancel each other out:
+% \begin{equation}
+% \label{eq:cox_listwise_app}
+%     \ell_{\textup{cox}}(g) = \frac{1}{n} \sum_{i=1}^n \delta_i \log \left( 1 + \sum_{j \in R_i, j \neq i} \exp\Big( g(x_i) - g(x_j) \Big) \right).
+% \end{equation}
+% This formulation mathematically reveals the Cox partial likelihood as an explicit \emph{listwise} cross-entropy ranking loss. By applying the strict subadditivity property of the logarithmic function for positive arguments (Lemma \ref{lem:log_subadd}), we establish the following convex upper bound:
+% \begin{equation}
+%     \ell_{\textup{cox}}(g) \le \frac{1}{n} \sum_{i=1}^n \delta_i \sum_{j \in R_i, j \neq i} \log \left( 1 + \exp\Big( g(x_i) - g(x_j) \Big) \right).
+% \end{equation}
+% Assuming that there are no ties, the condition $j \in R_i$ with $j \neq i$ is equivalent to $y_j > y_i$. For clarity, and to keep the notation consistent with the pairwise losses introduced earlier in the paper, we now swap the dummy indices $i$ and $j$. This does not change the value of the sum, but it places the expression in the same convention as our previous ranking objectives, where the indicator is written as $\mathbbm{1}\{y_i>y_j\}$. Hence the upper bound may be written as:
+
+% Thus, the Cox loss is upper bounded by a pairwise RankNet-type objective with censoring-aware asymmetric weights
+% \[
+% w_{ij}^{\textup{cox}}=\delta_i \mathbbm{1}\{y_j>y_i\}.
+% \]
+% In particular, a pair contributes only when subject $i$ is observed to fail and subject $j$ is known to remain at risk beyond time $y_i$, so the temporal ordering of the pair is actually observed.
+% This shows that the Cox loss is upper bounded by a RankNet-type pairwise objective with censoring-aware asymmetric weights
+% \[
+% w_{ij}^{\textup{cox}}=\delta_j\,\mathbbm{1}\{y_i>y_j\}.
+% \]
+% Thus, a pair contributes only when subject $j$ is known to fail earlier than subject $i$, so the temporal ordering is observed and the comparison is informative.
+
+% To align exactly with the format of the pairwise losses defined in Section \ref{sec:calib-empirical}, we perform a dummy variable swap on the indices, relabeling index $i$ as $j$, and index $j$ as $i$. 
+% Under this swap:
+% \begin{itemize}
+%     \item The condition $y_j > y_i$ becomes $y_i > y_j$.
+%     \item The indicator $\delta_i = 1$ becomes $\delta_j = 1$.
+%     \item The exponent difference $g(x_i) - g(x_j)$ maps to $g(x_j) - g(x_i)$, which can be rewritten as $-(g(x_i) - g(x_j))$.
+% \end{itemize}
+% Applying this index swap yields:
+% \begin{equation}
+%     \label{eq:cox_pairwise_bound}
+%     \ell_{\textup{cox}}(g) \le \frac{1}{n} \sum_{i \neq j} \underbrace{\delta_j \mathbbm{1}\{y_i > y_j\}}_{w^{\textup{cox}}_{ij}} \log \left( 1 + \exp\Big( -\big(g(x_i) - g(x_j)\big) \Big) \right).
+% \end{equation}
+The claim follows by freely swapping indices $i$ and $j$ and letting $\tilde{g}= -g$.
+This establishes an exact mathematical equivalence: the upper bound of the Cox loss is precisely the \textsc{CAIRO} \texttt{RankNet} loss utilizing a censoring-aware asymmetric weight $w^{\textup{cox}}_{ij} = \delta_j$. Misordering is strictly penalized only when temporal precedence is guaranteed by an observed event.
+\end{proof}
+
+% \begin{equation}
+% \label{eq:emp-oroloss-ordered}
+%     \ell(y, g(x))
+%     \;=\;
+%     \frac{1}{n(n-1)}\sum_{i\ne j}
+%     w_{ij}\,
+%     \mathbbm{1}\{y_i>y_j\}\,\mathbbm{1}\{g(x_i)<g(x_j)\},
+% \end{equation}
+% \begin{equation}
+% \label{eq:cox_listwise_app}
+%     \ell_{\textup{cox}}(g) = \frac{1}{n} \sum_{i=1}^n \delta_i \log \left( 1 + \sum_{j \in R_i, j \neq i} \exp\Big( g(x_i) - g(x_j) \Big) \right).
+% \end{equation}
+% \end{proof}
+% \begin{equation}
+% \label{eq:weighted-logistic-bound}
+% \mathbbm{1}\{g(x_i)<g(x_j)\}
+% \;\le\;
+% \log\!\left(1+e^{-\sigma\,(g(x_i)-g(x_j))}\right) .
+% \end{equation}
+
+\begin{proposition}[Relationship among the hard, soft, and pairwise Cox ranking losses]
+\label{prop:cox_loss_relationships}
+Assume there are no tied event times, and define
+\begin{align}
+\ell_{\mathrm{hard}}^{\mathrm{cox}}(g)
+&\equiv
+\sum_{i\ne j}
+\delta_j\,\mathbbm{1}\{y_i>y_j\}\,\mathbbm{1}\{g(x_i)<g(x_j)\},
+\label{eq:cox_hard_loss_prop}
+\\
+\ell_{\mathrm{soft}}^{\mathrm{cox}}(g)
+&\equiv
+\sum_{i\ne j}
+\delta_j\,\mathbbm{1}\{y_i>y_j\}
+\log\!\left(1+e^{-(g(x_i)-g(x_j))}\right),
+\label{eq:cox_soft_loss_prop}
+\\
+\ell_{\mathrm{cox}}(g)
+&\equiv
+\sum_{j=1}^n
+\delta_j
+\log\!\left(
+1+\sum_{i:\,y_i>y_j} e^{-(g(x_i)-g(x_j))}
+\right).
+\label{eq:cox_listwise_loss_prop}
+\end{align}
+For each event index \(j\), let
+\begin{equation}
+\label{eq:Hj_def_prop}
+H_j(g)
+\equiv
+\sum_{i:\,y_i>y_j}\mathbbm{1}\{g(x_i)<g(x_j)\}
+\end{equation}
+denote the number of hard pairwise misorderings in the risk set of subject \(j\). Then
+\begin{align}
+\ell_{\mathrm{hard}}^{\mathrm{cox}}(g)
+&=
+\sum_{j=1}^n \delta_j\,H_j(g),
+\label{eq:hard_decomp_prop}
+\\
+\ell_{\mathrm{cox}}(g)
+&\le
+\ell_{\mathrm{soft}}^{\mathrm{cox}}(g),
+\label{eq:cox_soft_upper_prop}
+\\
+\ell_{\mathrm{hard}}^{\mathrm{cox}}(g)
+&\le
+\ell_{\mathrm{soft}}^{\mathrm{cox}}(g),
+\label{eq:hard_soft_upper_prop}
+\\
+\sum_{j=1}^n \delta_j \log\!\big(1+H_j(g)\big)
+&\le
+\ell_{\mathrm{cox}}(g).
+\label{eq:cox_hard_lower_prop}
+\end{align}
+Consequently,
+\begin{equation}
+\label{eq:cox_sandwich_prop}
+\sum_{j=1}^n \delta_j \log\!\big(1+H_j(g)\big)
+\le
+\ell_{\mathrm{cox}}(g)
+\le
+\ell_{\mathrm{soft}}^{\mathrm{cox}}(g),
+\qquad
+\ell_{\mathrm{hard}}^{\mathrm{cox}}(g)
+\le
+\ell_{\mathrm{soft}}^{\mathrm{cox}}(g).
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+The decomposition \eqref{eq:hard_decomp_prop} follows immediately by grouping the terms in \eqref{eq:cox_hard_loss_prop} according to the event index \(j\):
+\[
+\ell_{\mathrm{hard}}^{\mathrm{cox}}(g)
+=
+\sum_{j=1}^n
+\delta_j
+\sum_{i:\,y_i>y_j}\mathbbm{1}\{g(x_i)<g(x_j)\}
+=
+\sum_{j=1}^n \delta_j\,H_j(g).
+\]
+
+The upper bound \eqref{eq:cox_soft_upper_prop} is exactly Theorem~\ref{thm:cox_pairwise_upper}. To prove \eqref{eq:hard_soft_upper_prop}, we reuse the same indicator-to-log-sigmoid comparison as in \eqref{eq:weighted-logistic-bound}. Multiplying by \(\delta_j\mathbbm{1}\{y_i>y_j\}\), and summing over \(i\ne j\) gives:
+\[
+\sum_{i\ne j}
+\delta_j\,\mathbbm{1}\{y_i>y_j\}\,\mathbbm{1}\{g(x_i)<g(x_j)\}
+\le
+\sum_{i\ne j}
+\delta_j\,\mathbbm{1}\{y_i>y_j\}
+\log\!\left(1+e^{-(g(x_i)-g(x_j))}\right),
+\]
+which is exactly \eqref{eq:hard_soft_upper_prop}. Finally, to prove \eqref{eq:cox_hard_lower_prop}, fix \(j\). If \(g(x_i)<g(x_j)\), then
+\[
+e^{-(g(x_i)-g(x_j))}\ge 1.
+\]
+Hence
+\[
+\sum_{i:\,y_i>y_j} e^{-(g(x_i)-g(x_j))}
+\ge
+\sum_{i:\,y_i>y_j}\mathbbm{1}\{g(x_i)<g(x_j)\}
+=
+H_j(g).
+\]
+Since \(\log\) is increasing,
+\[
+\delta_j
+\log\!\left(
+1+\sum_{i:\,y_i>y_j} e^{-(g(x_i)-g(x_j))}
+\right)
+\ge
+\delta_j \log\!\big(1+H_j(g)\big).
+\]
+Summing over \(j\) yields \eqref{eq:cox_hard_lower_prop}. The combined statement \eqref{eq:cox_sandwich_prop} follows immediately.
+\end{proof}
+
+Proposition~\ref{prop:cox_loss_relationships} clarifies the role of the Cox partial likelihood within our ranking framework. The hard loss \(\ell_{\mathrm{hard}}^{\mathrm{cox}}\) counts pairwise survival-ranking violations, the soft loss \(\ell_{\mathrm{soft}}^{\mathrm{cox}}\) replaces this discontinuous count by the same log-sigmoid surrogate used earlier for RankNet, and the Cox loss \(\ell_{\mathrm{cox}}\) aggregates these comparisons at the level of entire risk sets through a log-sum-exp transformation. The inequalities therefore place the Cox objective between a logarithmic transform of the hard risk-set violation counts and the soft pairwise surrogate. In particular, minimizing \(\ell_{\mathrm{cox}}\) necessarily discourages hard misorderings within each risk set, while minimizing \(\ell_{\mathrm{soft}}^{\mathrm{cox}}\) provides an explicit upper bound on the Cox objective. This gives a precise mathematical sense in which the Cox partial likelihood is a listwise, censoring-aware analogue of RankNet.
+
+
+\subsection{Unbiasedness of the pointwise IPCW Gini loss}
+
+To circumvent the $O(n^2)$ computational complexity of pairwise comparisons, we extend the \textsc{CAIRO} pointwise Gini loss to survival data using Inverse Probability of Censoring Weighting (IPCW). If survival times $T_i$ were entirely uncensored, the true empirical loss would simply be $\ell_{\textup{ideal}}(g) = -\frac{1}{n}\sum_{i=1}^n T_i \operatorname{softrank}\big(g(X_i); \{g(X_j)\}_{j=1}^n\big)$. 
+
+Let $A(t \mid x) = \mathbb{P}(C \ge t \mid X=x)$ denote the conditional probability of not being censored strictly prior to time $t$. The IPCW-adapted loss using observed times $Y_i = \min(T_i, C_i)$ and event indicators $\delta_i = \mathbbm{1}\{T_i \le C_i\}$ is formulated as:
+\begin{equation}
+\label{eq:surv_pointwise}
+    \ell_{\textup{surv-soft-abs}}(g) \equiv - \frac{1}{n} \sum_{i=1}^n \frac{\delta_i Y_i}{\widehat{A}(Y_i \mid X_i)} \operatorname{softrank}\big(g(X_i);\{g(X_j)\}_{j=1}^{n}\big),
+\end{equation}
+where $\widehat{A}(t \mid x)$ is a consistent estimator of this true conditional censoring probability $A(t \mid x)$.
+
+\begin{theorem}[IPCW Unbiasedness]
+\label{thm:ipcw_unbiasedness}
+Assume conditionally independent censoring $C \perp\!\!\!\perp T \mid X$ (A1), and strict positivity $\mathbb{P}(C \ge T \mid X) > 0$ almost surely. If the objective is evaluated using the true censoring distribution $A$ (i.e., replacing $\widehat{A}$ with $A$), its expected value perfectly equals the expected value of the unobserved ideal full-data objective: $\mathbb{E} \big[ \ell_{\textup{surv-soft-abs}}(g) \big] = \mathbb{E} \big[ \ell_{\textup{ideal}}(g) \big]$.
+\end{theorem}
+
+\begin{proof}
+Let $\mathbf{X} = \{X_1, \dots, X_n\}$ and $\mathbf{T} = \{T_1, \dots, T_n\}$ denote the full covariate matrix and true survival times for the sample, respectively. Let $r_g(X_i \mid \mathbf{X}) \equiv \operatorname{softrank}\big(g(X_i);\{g(X_j)\}_{j=1}^{n}\big)$. Because the softrank of the $i$-th observation depends on the covariates of the entire sample, it is deterministic only when conditioning on the full set $\mathbf{X}$. By the linearity of expectation, it suffices to prove the equivalence for the $i$-th term. We evaluate the expectation of the IPCW-weighted term using the true censoring distribution $A$:
+\begin{align}
+    \mathbb{E} \left[ \frac{\delta_i Y_i}{A(Y_i \mid X_i)} r_g(X_i \mid \mathbf{X}) \right] &= \mathbb{E} \left[ \frac{\mathbbm{1}\{T_i \le C_i\} \min(T_i, C_i)}{A(\min(T_i, C_i) \mid X_i)} r_g(X_i \mid \mathbf{X}) \right].
+\end{align}
+Restricted to the event indicator $\mathbbm{1}\{T_i \le C_i\}$, the observed time is strictly $\min(T_i, C_i) = T_i$. Substituting this equivalence yields:
+\begin{align}
+    &= \mathbb{E} \left[ \frac{\mathbbm{1}\{T_i \le C_i\} T_i}{A(T_i \mid X_i)} r_g(X_i \mid \mathbf{X}) \right].
+\end{align}
+Note that the indicator $\mathbbm{1}\{T_i \le C_i\}$ is logically identical to $\mathbbm{1}\{C_i \ge T_i\}$. By the law of total expectation, we iterate the expectation by conditioning on the full sample characteristics $\mathbf{X}$ and $\mathbf{T}$:
+\begin{align}
+    &= \mathbb{E}_{\mathbf{X}, \mathbf{T}} \left[ \mathbb{E}_{\mathbf{C} \mid \mathbf{X}, \mathbf{T}} \left[ \left. \frac{\mathbbm{1}\{C_i \ge T_i\} T_i}{A(T_i \mid X_i)} r_g(X_i \mid \mathbf{X}) \right| \mathbf{X}, \mathbf{T} \right] \right].
+\end{align}
+Because $T_i$, $A(T_i \mid X_i)$, and $r_g(X_i \mid \mathbf{X})$ are completely deterministic given $\mathbf{X}$ and $\mathbf{T}$, we rigorously factor them out of the inner conditional expectation:
+\begin{align}
+    &= \mathbb{E}_{\mathbf{X}, \mathbf{T}} \left[ \frac{T_i r_g(X_i \mid \mathbf{X})}{A(T_i \mid X_i)} \mathbb{E}_{\mathbf{C} \mid \mathbf{X}, \mathbf{T}} \Big[ \mathbbm{1}\{C_i \ge T_i\} \;\big|\; \mathbf{X}, \mathbf{T} \Big] \right].
+\end{align}
+Under the assumption of mutually independent i.i.d. observations and conditionally independent censoring (A1), the censoring variable $C_i$ is conditionally independent of $\mathbf{T}$ and $\mathbf{X}_{-i}$ given $X_i$. Thus, the conditional expectation of the indicator exactly reduces to the definition of $A$:
+\begin{align}
+    \mathbb{E}_{\mathbf{C} \mid \mathbf{X}, \mathbf{T}} \Big[ \mathbbm{1}\{C_i \ge T_i\} \;\big|\; \mathbf{X}, \mathbf{T} \Big] = \mathbb{P}(C_i \ge T_i \mid X_i) = A(T_i \mid X_i).
+\end{align}
+Substituting this back into the expectation allows the censoring probabilities to perfectly algebraically cancel out:
+\begin{align}
+    \mathbb{E}_{\mathbf{X}, \mathbf{T}} \left[ \frac{T_i r_g(X_i \mid \mathbf{X})}{A(T_i \mid X_i)} \cdot A(T_i \mid X_i) \right] &= \mathbb{E}_{\mathbf{X}, \mathbf{T}} \Big[ T_i r_g(X_i \mid \mathbf{X}) \Big].
+\end{align}
+This expression exactly matches the expectation of the $i$-th term from the ideal, fully-observed data objective. Multiplying by $-1/n$ and summing over all $i \in \{1, \dots, n\}$ concludes the proof.
+\end{proof} 
+
+
+
+\section{Extension to Survival Analysis: Calibrating Right-Censored Outcomes}
+\label{sec:survival_extension}
+
+The decoupled architecture of the \textsc{CAIRO} framework makes it uniquely suited for time-to-event data subject to right-censoring. Let $T$ denote the true survival time and $C$ the censoring time. Due to right-censoring, we observe only $V = \min(T, C)$ and the event indicator $\Delta = \mathbbm{1}\{T \le C\}$. We operate under the standard assumption of independent censoring, $C \perp\!\!\!\perp (T, X)$, where $X$ are the covariates.
+
+In standard regression, right-censoring obscures the true outcome, rendering pointwise losses like MSE inapplicable. However, classical survival objectives, such as the negative partial log-likelihood of the Cox proportional hazards model \citep{cox1972regression} or smoothed approximations of the concordance index (C-index), rely exclusively on the relative rank ordering of observed events among the risk set. These objectives are invariant to strictly increasing transformations of the baseline hazard and thus inherently satisfy the Optimal-in-Rank-Order (ORO) property. Consequently, Stage~1 can robustly learn an order-preserving index $g^{\star}(X)$ directly from censored data.
+
+While Stage~1 effortlessly handles censoring, applying standard isotonic regression in Stage~2 requires resolving the unobserved targets. Treating the censored time $V$ as the true target $T$ would induce a severe downward bias. We present two rigorous non-parametric recalibration methodologies to correctly recover the absolute scale.
+
+\subsection{Approach A: Continuous RMST Calibration via Pseudo-Observations}
+
+If the clinical target is a continuous outcome, such as the Restricted Mean Survival Time (RMST) evaluated at a prespecified horizon $\tau$, the true regression function is $m^{\star}_{\tau}(x) = \mathbb{E}[\min(T, \tau) \mid X=x]$. To globally circumvent censoring bias prior to calibration, we employ the jackknife pseudo-observation framework \citep{andersen2010pseudo}.
+
+\paragraph{Technical details of pseudo-observations.} 
+Let $\hat{S}(t)$ denote the Kaplan-Meier estimator of the survival function computed on the pooled sample of size $n$, and define the marginal RMST estimator as $\hat{\theta} = \int_0^\tau \hat{S}(t) dt$. Let $\hat{\theta}^{-i}$ denote the identical estimator computed on the sample of size $n-1$ excluding the $i$-th subject. The pseudo-observation for subject $i$ is defined as:
+\begin{equation}
+\label{eq:pseudo_obs}
+    \hat{Y}_i^{(pseudo)} = n\hat{\theta} - (n-1)\hat{\theta}^{-i}.
+\end{equation}
+
+\paragraph{Information recovery and bias compensation.} 
+The mathematical elegance of $\hat{Y}_i^{(pseudo)}$ lies in its connection to the functional von Mises expansion. The pseudo-observation provides a first-order approximation to the empirical influence function of the RMST \citep{graw2009pseudo}. For an uncensored individual experiencing an early event, $\hat{Y}_i^{(pseudo)}$ closely approximates their exact restricted survival time. For a censored individual, the transformation dynamically projects their expected residual life by leveraging the survival curve of the remaining risk set. It structurally borrows survival probability mass to impute the unobserved tail, perfectly compensating for the downward bias induced by censoring.
+
+\paragraph{Smoothing out the censoring mechanism.} 
+By transforming the incomplete survival data $(V_i, \Delta_i)$ into a set of completely observed, continuous real-valued scalars $\{\hat{Y}_i^{(pseudo)}\}_{i=1}^n$, the censoring mechanism is entirely ``smoothed out.'' Stage~2 calibration is thus reduced to a standard regression problem. We simply execute the unmodified Pool Adjacent Violators (PAV) algorithm on the pairs $\{(g(x_i), \hat{Y}_i^{(pseudo)})\}_{i=1}^n$.
+
+\begin{theorem}[Consistency of Pseudo-Observation Isotonic Calibration]
+\label{thm:pseudo_iso}
+Assume $C \perp\!\!\!\perp (T, X)$. Let $Y^{(pseudo)}$ be the asymptotic population limit of the pseudo-observation, which satisfies $\mathbb{E}[Y^{(pseudo)} \mid X] = \mathbb{E}[\min(T, \tau) \mid X] = m^{\star}_{\tau}(X)$. If the Stage~1 score $g^\star(X)$ satisfies the ORO property such that $g^\star(X) = h(m^{\star}_{\tau}(X))$ for some strictly increasing function $h$, then the population monotone calibrator, defined as
+\[
+f^{\star} \in \arg\min_{f \in \mathcal{F}} \ \mathbb{E}\left[\left(Y^{(pseudo)} - f(g^\star(X))\right)^2\right],
+\]
+strictly recovers the true Restricted Mean Survival Time: $f^{\star}(g^\star(X)) = m^{\star}_{\tau}(X)$.
+\end{theorem}
+
+\begin{proof}
+As established by \citet{graw2009pseudo}, under independent censoring, the conditional expectation of the asymptotic pseudo-observation given the covariates is strictly unbiased for the true conditional RMST:
+\begin{equation}
+\label{eq:pseudo_expectation}
+\mathbb{E}[Y^{(pseudo)} \mid X] = m^{\star}_{\tau}(X).
+\end{equation}
+We expand the expected squared error objective by adding and subtracting $m^{\star}_{\tau}(X)$:
+\begin{align*}
+\mathbb{E}\left[\left(Y^{(pseudo)} - f(g^\star(X))\right)^2\right] 
+&= \mathbb{E}\left[\left(Y^{(pseudo)} - m^{\star}_{\tau}(X) + m^{\star}_{\tau}(X) - f(g^\star(X))\right)^2\right] \\
+&= \mathbb{E}\left[\left(Y^{(pseudo)} - m^{\star}_{\tau}(X)\right)^2\right] + \mathbb{E}\left[\left(m^{\star}_{\tau}(X) - f(g^\star(X))\right)^2\right] \\
+&\quad + 2\,\mathbb{E}\left[\left(Y^{(pseudo)} - m^{\star}_{\tau}(X)\right)\left(m^{\star}_{\tau}(X) - f(g^\star(X))\right)\right].
+\end{align*}
+By the law of iterated expectations, the cross-term is evaluated by conditioning on $X$:
+\begin{align*}
+&\mathbb{E}_{X}\left[\left(m^{\star}_{\tau}(X) - f(g^\star(X))\right) \mathbb{E}_{Y^{(pseudo)}\mid X}\left[Y^{(pseudo)} - m^{\star}_{\tau}(X) \mid X\right]\right] = 0,
+\end{align*}
+since the inner expectation is zero by \eqref{eq:pseudo_expectation}. The first term $\mathbb{E}[(Y^{(pseudo)} - m^{\star}_{\tau}(X))^2]$ is the irreducible variance and is independent of $f$. Thus, minimizing the objective over $f \in \mathcal{F}$ is exactly equivalent to minimizing $\mathbb{E}[(m^{\star}_{\tau}(X) - f(g^\star(X)))^2]$. By the ORO property, $g^\star(X) = h(m^{\star}_{\tau}(X))$ for a strictly increasing $h$. Since $h^{-1}$ is monotonic and minimizes the risk to zero, the unique projection is $f^{\star} = h^{-1}$, yielding $f^{\star}(g^\star(X)) = m^{\star}_{\tau}(X)$.
+\end{proof}
+
+
+\subsection{Approach B: Target-Time Survival Calibration via IPCW}
+
+If the clinical objective is to calibrate the absolute survival probability at a specific critical landmark time $t^*$, the true regression target is binary: $p^{\star}_{t^*}(x) = \mathbb{P}(T > t^* \mid X=x)$. 
+
+\paragraph{Methodology and IPCW Weighting.}
+We cast this as a binary calibration task where the ideal, yet partially unobserved, outcome is $Y^\star_i = \mathbbm{1}\{T_i > t^*\}$. Because $Y^\star_i$ is unknown for individuals who are censored prior to $t^*$ (i.e., $V_i \le t^*$ and $\Delta_i = 0$), we define the observable binary proxy $\tilde{Y}_i = \mathbbm{1}\{V_i > t^*\}$ and employ Inverse Probability of Censoring Weighting (IPCW) \citep{graf1999assessment, gerds2006consistent}. 
+
+Let $G(t) = \mathbb{P}(C > t)$ denote the survival function of the censoring distribution, which is consistently estimated by the Kaplan-Meier estimator $\hat{G}(t)$ on the censoring times. We assign each subject a specific weight $W_i$:
+\begin{equation}
+\label{eq:ipcw_weight}
+    W_i = \frac{\mathbbm{1}\{V_i > t^*\}}{\hat{G}(t^*)} + \frac{\Delta_i \mathbbm{1}\{V_i \le t^*\}}{\hat{G}(V_i-)},
+\end{equation}
+where $\hat{G}(V_i-)$ is the left limit of the censoring survival function. Subjects censored before $t^*$ receive a weight of zero, effectively removing them from Stage~2. The weights of the remaining observed subjects are inflated inversely proportional to their probability of remaining uncensored. This dynamic weighting mathematically reconstructs the original, un-censored risk set.
+
+\paragraph{Sample-weighted isotonic regression.}
+This formulation seamlessly integrates with Stage~2 of \textsc{CAIRO}. We perform a \emph{weighted} isotonic regression, minimizing $\sum_{i=1}^n W_i (\tilde{Y}_i - f(g(x_i)))^2$ subject to monotonicity constraints. Standard implementations of the PAV algorithm process sample weights natively; when adjacent blocks violate monotonicity, they are merged using their $W_i$-weighted empirical average. Crucially, the computational complexity remains highly efficient at $O(n \log n)$.
+
+\begin{theorem}[Consistency of IPCW Isotonic Calibration]
+\label{thm:ipcw_iso}
+Assume $C \perp\!\!\!\perp (T, X)$ and $\mathbb{P}(C > t^*) > 0$. Let $W$ be defined using the true population censoring distribution $G(t)$. If the Stage~1 score $g^\star(X)$ satisfies the ORO property with respect to $p^{\star}_{t^*}(X) = \mathbb{P}(T > t^* \mid X)$, the weighted population monotone calibrator, defined as
+\[
+f^{\star} \in \arg\min_{f \in \mathcal{F}} \ \mathbb{E}\left[ W \left(\tilde{Y} - f(g^\star(X))\right)^2 \right],
+\]
+strictly recovers the true conditional survival probability: $f^{\star}(g^\star(X)) = p^{\star}_{t^*}(X)$.
+\end{theorem}
+
+\begin{proof}
+Let $Y^\star = \mathbbm{1}\{T > t^*\}$ be the fully observed, ideal target. We evaluate the expected IPCW-weighted risk by conditioning on the true failure time $T$ and covariates $X$:
+\begin{align*}
+    \mathbb{E}_{X, T, C} \left[ W \left(\tilde{Y} - f(g^\star(X))\right)^2 \right] 
+    &= \mathbb{E}_{X, T} \left[ \mathbb{E}_{C \mid X, T}\left[ W \left(\tilde{Y} - f(g^\star(X))\right)^2 \;\middle|\; X, T \right] \right].
+\end{align*}
+Because $C \perp\!\!\!\perp (T, X)$, the conditional expectation with respect to $C$ depends solely on the marginal censoring survival function $G(t)$. We partition the inner expectation into two disjoint cases based on the true unobserved outcome:
+\begin{enumerate}
+    \item \textbf{Case $T > t^*$ (i.e., $Y^\star = 1$):} The subject is observed surviving past $t^*$ ($\tilde{Y}=1, V > t^*$) if and only if $C > t^*$. The associated weight is $1/G(t^*)$. Thus, the inner expectation is:
+    \[
+    \mathbb{E}_C \left[ \frac{\mathbbm{1}\{C > t^*\}}{G(t^*)} \big(1 - f(g^\star(X))\big)^2 \;\middle|\; T > t^* \right] = \frac{\mathbb{P}(C > t^*)}{G(t^*)} \big(1 - f(g^\star(X))\big)^2 = \big(1 - f(g^\star(X))\big)^2.
+    \]
+    \item \textbf{Case $T \le t^*$ (i.e., $Y^\star = 0$):} The subject is observed failing before $t^*$ ($\tilde{Y}=0, V=T, \Delta=1$) if and only if $C \ge T$. The associated weight is $1/G(T-)$. Thus, the inner expectation is:
+    \[
+    \mathbb{E}_C \left[ \frac{\mathbbm{1}\{C \ge T\}}{G(T-)} \big(0 - f(g^\star(X))\big)^2 \;\middle|\; T \le t^* \right] = \frac{\mathbb{P}(C \ge T \mid T)}{G(T-)} \big(0 - f(g^\star(X))\big)^2 = \big(0 - f(g^\star(X))\big)^2.
+    \]
+\end{enumerate}
+In both cases, the censoring probability precisely cancels out the IPCW denominator. The inner expectation algebraically reduces to exactly $(\mathbbm{1}\{T > t^*\} - f(g^\star(X)))^2 = (Y^\star - f(g^\star(X)))^2$. Taking the outer expectation over $(T,X)$ yields:
+\[
+\mathbb{E} \left[ W \left(\tilde{Y} - f(g^\star(X))\right)^2 \right] = \mathbb{E}_{X, T} \left[ \left(Y^\star - f(g^\star(X))\right)^2 \right].
+\]
+This profound identity demonstrates that the IPCW weighting mathematically marginalizes out the censoring mechanism, rendering the observable objective strictly equivalent to the unobservable full-data Brier score. Since $\mathbb{E}[Y^\star \mid X] = \mathbb{P}(T > t^* \mid X) = p^{\star}_{t^*}(X)$, applying Theorem~\ref{composition_is_f_star_statement} guarantees that the monotone projection strictly recovers $f^{\star}(g^\star(X)) = p^{\star}_{t^*}(X)$.
+\end{proof}
+
+
+\end{document}
+
+ 

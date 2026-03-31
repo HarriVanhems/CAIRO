@@ -1,0 +1,92 @@
+% Requires: \usepackage{graphicx}, \usepackage{booktabs}
+% Update this path if the main .tex file is compiled from a different directory.
+\providecommand{\PositiveSkewFigureDir}{../results/benchmarks/positive_skew_study/figures}
+
+\subsection{Positive-Skew Heteroskedastic Severity Sweep}
+\label{sec:positive-skew}
+
+\paragraph{Objective.}
+We designed a controlled severity sweep to test the regime in which CAIRO should help most: positive, skewed, heteroskedastic regression where the ordering of outcomes is easier to learn than their absolute scale. The experiment varies a single severity parameter while keeping the feature dimension and nonlinear signal fixed. As severity increases, the response becomes more heavy-tailed and the noise becomes more strongly mean-dependent.
+
+\paragraph{Data-generating process.}
+We draw covariates $X \in \mathbb{R}^{10}$ from $\mathcal{N}(0,I_{10})$ and define a nonlinear latent index
+\[
+z \;=\; \frac{X^\top w}{\sqrt{10}}
++ 0.55 \sin(X_1 + 0.5 X_2)
++ 0.25 X_3 X_4
+- 0.20 \cos(X_5),
+\]
+where $w \sim \mathcal{N}(0,I_{10})$, after which $z$ is standardized. For severity level $s \in \{0.0,0.4,0.8,1.2,1.6,2.0\}$, we define
+\[
+\mu = \exp\!\big((0.70 + 0.25s)\,z\big),
+\qquad
+\log M \sim \mathcal{N}\!\big(-\sigma(s)^2/2,\sigma(s)^2\big),
+\qquad
+\sigma(s)=0.10+0.22s,
+\]
+and generate the response as
+\[
+Y = \mu \, M \, \exp\!\big(0.12s\max(z,0)\big).
+\]
+Because $\mathbb{E}[M]=1$, increasing $s$ strengthens the right tail and the mean-dependent variance without changing the basic nonlinear index structure.
+
+\paragraph{Setup.}
+We report the full five-repeat sweep with $n=6000$ and compare only architecture-matched neural models: the pairwise \textsc{CAIROK1}, \textsc{CAIROG1}, and \textsc{CAIROS1} variants; the pointwise \textsc{CAIROG2} variant; and the direct regression baselines \textsc{NN-MSE}, \textsc{NN-MAE}, and \textsc{NN-Huber}. All models use the same $32 \rightarrow 16 \rightarrow 1$ MLP backbone. The pairwise CAIRO variants differ only in their Stage~1 weights (uniform, absolute-gap, or rank-gap), while \textsc{CAIROG2} uses a pointwise soft-rank Gini objective. Every model is trained with a validation split and model-specific epoch ceilings together with early stopping; \textsc{NN-Huber} additionally tunes its Huber threshold on the validation split. Final predictions are produced after a separate held-out isotonic calibration split. We report pairwise accuracy, Spearman's $\rho$, Kendall's $\tau$, RMSE, MAE, and a binned calibration gap (CalGap).
+
+\begin{figure}[t]
+\centering
+\begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{\PositiveSkewFigureDir/positive_skew_profile.pdf}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{\PositiveSkewFigureDir/positive_skew_sweep_neural.pdf}
+\end{minipage}
+\caption{
+Positive-skew heteroskedastic severity sweep for the neural-only comparison.
+Left: the severity parameter produces progressively heavier tails and stronger heteroskedasticity; the tail ratio increases from $3.2$ to $11.8$ and the correlation between the conditional mean and absolute error increases from $0.57$ to $0.76$.
+Right: the pairwise CAIRO variants dominate the moderate-severity regime and remain substantially better ordered and better calibrated than direct neural regression baselines as severity increases.
+}
+\label{fig:positive-skew}
+\end{figure}
+
+\paragraph{Profile of the data.}
+Figure~\ref{fig:positive-skew} confirms that the sweep behaves as intended. The sample skewness is noisy, which is expected in extremely heavy-tailed settings, but the more stable diagnostics evolve monotonically: the $95$th-percentile-to-median ratio rises from $3.22 \pm 0.11$ at severity $0.0$ to $11.83 \pm 0.20$ at severity $2.0$, and the heteroskedasticity correlation rises from $0.573 \pm 0.008$ to $0.756 \pm 0.004$. This verifies that the sweep is not merely injecting arbitrary variance, but is specifically making the response more positively skewed and more mean-dependent.
+
+\paragraph{Results.}
+\textsc{CAIROG1} is the strongest model over the moderate part of the sweep. From severity $0.0$ through $1.2$, it attains the lowest RMSE in the neural comparison, with \textsc{CAIROK1} and \textsc{CAIROS1} close behind. At severity $0.8$, \textsc{CAIROG1} reaches RMSE $1.169 \pm 0.239$, pairwise accuracy $0.912 \pm 0.004$, and calibration gap $0.065 \pm 0.025$, compared with RMSE $1.365 \pm 0.299$ for \textsc{NN-MSE}, $1.565 \pm 0.419$ for \textsc{NN-MAE}, and $1.417 \pm 0.327$ for \textsc{NN-Huber}. At severity $1.2$, the three pairwise CAIRO variants remain tightly clustered around RMSE $1.75$, while the direct neural baselines range from $1.84$ to $1.95$ and exhibit materially larger calibration gaps. Across these moderate severities, the pointwise \textsc{CAIROG2} model remains competitive but trails the pairwise CAIRO variants on both ranking quality and point prediction.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Selected neural-only results from the positive-skew heteroskedastic sweep. Entries are mean $\pm$ 95\% CI over five repeats. Best value per severity/metric is in bold.}
+\label{tab:positive-skew-selected}
+\begin{tabular}{l l c c c}
+\toprule
+Severity & Model & RMSE & PairAcc & CalGap \\
+\midrule
+0.8 & \textsc{CAIROG1} & $\mathbf{1.169 \pm 0.239}$ & $\mathbf{0.912 \pm 0.004}$ & $0.065 \pm 0.025$ \\
+0.8 & \textsc{CAIROK1} & $1.273 \pm 0.297$ & $0.910 \pm 0.003$ & $0.078 \pm 0.016$ \\
+0.8 & \textsc{CAIROS1} & $1.260 \pm 0.148$ & $0.910 \pm 0.002$ & $\mathbf{0.065 \pm 0.030}$ \\
+0.8 & \textsc{CAIROG2} & $1.827 \pm 0.345$ & $0.849 \pm 0.008$ & $0.075 \pm 0.026$ \\
+0.8 & \textsc{NN-MSE} & $1.365 \pm 0.299$ & $0.869 \pm 0.009$ & $0.088 \pm 0.012$ \\
+0.8 & \textsc{NN-MAE} & $1.565 \pm 0.419$ & $0.886 \pm 0.003$ & $0.134 \pm 0.057$ \\
+0.8 & \textsc{NN-Huber} & $1.417 \pm 0.327$ & $0.871 \pm 0.009$ & $0.081 \pm 0.016$ \\
+\midrule
+2.0 & \textsc{CAIROG1} & $6.769 \pm 2.062$ & $0.876 \pm 0.003$ & $\mathbf{0.155 \pm 0.039}$ \\
+2.0 & \textsc{CAIROK1} & $6.931 \pm 2.079$ & $0.879 \pm 0.003$ & $0.159 \pm 0.101$ \\
+2.0 & \textsc{CAIROS1} & $6.708 \pm 1.728$ & $\mathbf{0.881 \pm 0.002}$ & $0.169 \pm 0.083$ \\
+2.0 & \textsc{CAIROG2} & $8.032 \pm 2.148$ & $0.836 \pm 0.011$ & $0.179 \pm 0.049$ \\
+2.0 & \textsc{NN-MSE} & $6.403 \pm 1.407$ & $0.820 \pm 0.017$ & $0.719 \pm 0.593$ \\
+2.0 & \textsc{NN-MAE} & $6.630 \pm 1.679$ & $0.856 \pm 0.001$ & $0.586 \pm 0.195$ \\
+2.0 & \textsc{NN-Huber} & $\mathbf{6.297 \pm 1.540}$ & $0.833 \pm 0.006$ & $0.417 \pm 0.156$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Interpretation.}
+The cleanest ablation is the comparison against \textsc{NN-MSE}, \textsc{NN-MAE}, and \textsc{NN-Huber}, since all seven models share the same neural backbone. The resulting performance differences therefore come from the objective and the two-stage decomposition rather than network capacity. At the highest severities ($1.6$ and $2.0$), the story becomes more nuanced: \textsc{NN-Huber} attains the best RMSE, but the pairwise CAIRO variants remain decisively better on ranking quality and calibration. At severity $2.0$, for instance, \textsc{NN-Huber} improves RMSE from $6.769 \pm 2.062$ for \textsc{CAIROG1} to $6.297 \pm 1.540$, but its pairwise accuracy drops from $0.876 \pm 0.003$ to $0.833 \pm 0.006$ and its calibration gap rises from $0.155 \pm 0.039$ to $0.417 \pm 0.156$. Thus, under extreme skew, robust direct regression can recover some pointwise accuracy, but the CAIRO decomposition still preserves a much stronger ordinal structure and much better calibration.
+
+\paragraph{Takeaway.}
+This neural-only comparison removes model capacity as a confounder and directly tests the CAIRO decomposition itself. The evidence supports the following picture: pairwise CAIRO training is the strongest neural recipe throughout the moderate positive-skew regime, with \textsc{CAIROG1} as the most consistently effective variant, and even when \textsc{NN-Huber} catches up on RMSE at the most extreme severities, the CAIRO models remain much better ordered and much better calibrated.

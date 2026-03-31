@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numpy as np
+import pandas as pd
 import argparse
 import sys
 from pathlib import Path
@@ -23,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the paper-aligned CAIRO synthetic benchmark with plots."
     )
-    parser.add_argument("--mode", choices=["debug", "full"], default="debug")
+    parser.add_argument("--mode", choices=["smoke", "debug", "full"], default="smoke")
     parser.add_argument("--repeats", type=int, default=None)
     parser.add_argument(
         "--output-dir",

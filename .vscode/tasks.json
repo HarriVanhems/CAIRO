@@ -1,0 +1,80 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build CAIRO paper",
+      "type": "shell",
+      "command": "latexmk",
+      "args": [
+        "-pdf",
+        "-interaction=nonstopmode",
+        "-synctex=1",
+        "main.tex"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/tex_CAIRO",
+        "env": {
+          "LANG": "C",
+          "LC_ALL": "C"
+        }
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Rebuild CAIRO paper",
+      "type": "shell",
+      "command": "latexmk",
+      "args": [
+        "-g",
+        "-pdf",
+        "-interaction=nonstopmode",
+        "-synctex=1",
+        "main.tex"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/tex_CAIRO",
+        "env": {
+          "LANG": "C",
+          "LC_ALL": "C"
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Clean CAIRO paper",
+      "type": "shell",
+      "command": "latexmk",
+      "args": [
+        "-C",
+        "main.tex"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/tex_CAIRO",
+        "env": {
+          "LANG": "C",
+          "LC_ALL": "C"
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    }
+  ]
+}

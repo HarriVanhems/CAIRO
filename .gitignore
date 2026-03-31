@@ -3,3 +3,32 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 catboost_info/
+
+# LaTeX build artifacts for the paper workspace
+tex_CAIRO/*.aux
+tex_CAIRO/*.bbl
+tex_CAIRO/*.blg
+tex_CAIRO/*.fdb_latexmk
+tex_CAIRO/*.fls
+tex_CAIRO/*.log
+tex_CAIRO/*.out
+tex_CAIRO/*.synctex.gz
+tex_CAIRO/missfont.log
+tex_CAIRO/main.pdf
+tex_CAIRO/ref-papers/
+tex_CAIRO/ref2/
+tex_CAIRO/backup/
+tex_CAIRO/example_paper.pdf
+tex_CAIRO/icml_numpapers.pdf
+tex_CAIRO/cairo_mechanism_both_regimes*.pdf
+tex_CAIRO/cairo_results_analysis.png
+tex_CAIRO/plots_for_reserach.png
+
+# Generated synthetic benchmark outputs
+results/benchmarks/paper_synthetic*/
+results/benchmarks/positive_skew_study/
+results/benchmarks/positive_skew_study_smoke/
+results/benchmarks/positive_skew_study_xgbpairwise_smoke/
+results/benchmarks/matched_error_study_smoke*/
+results/benchmarks/matched_error_study_full_v2/
+results/benchmarks/monotone_distortion_neural_full/

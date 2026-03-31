@@ -1,0 +1,191 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[latin9]{inputenc}
+\usepackage{geometry}
+\geometry{verbose,tmargin=2.5cm,bmargin=2.5cm,lmargin=2.5cm,rmargin=2.5cm}
+\synctex=-1
+\usepackage{color}
+\usepackage{verbatim}
+\usepackage{float}
+\usepackage{mathtools}
+\usepackage{algorithm2e}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{setspace}
+\usepackage{wasysym}
+\usepackage{bbm}
+\usepackage{esint}
+
+\usepackage[inline]{enumitem}
+
+\usepackage[authoryear]{natbib}
+\onehalfspacing
+\usepackage[unicode=true,
+ bookmarks=false,
+ breaklinks=true,pdfborder={0 0 0},pdfborderstyle={},backref=false,colorlinks=true,citecolor=blue,urlcolor=blue]
+ {hyperref}
+\hypersetup{
+ citecolor=blue, linkcolor=blue}
+
+\makeatletter
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Textclass specific LaTeX commands.
+\newenvironment{lyxlist}[1]
+	{\begin{list}{}
+		{\settowidth{\labelwidth}{#1}
+		 \setlength{\leftmargin}{\labelwidth}
+		 \addtolength{\leftmargin}{\labelsep}
+		 \renewcommand{\makelabel}[1]{##1\hfil}}}
+	{\end{list}}
+\theoremstyle{plain}
+\newtheorem{remark}{\protect\remarkname}
+\theoremstyle{plain}
+\newtheorem{assumption}{\protect\assumptionname}
+\theoremstyle{plain}
+\newtheorem{proposition}{\protect\propositionname}
+\theoremstyle{plain}
+\newtheorem{theorem}{\protect\theoremname}
+\theoremstyle{plain}
+\newtheorem{example}{\protect\examplename}
+\theoremstyle{plain}
+\newtheorem{definition}{\protect\definitionname}
+\theoremstyle{plain}
+\newtheorem{lemma}{\protect\lemmaname}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% User specified LaTeX commands.
+\topmargin 0pt
+\advance \topmargin by -\headheight
+\advance \topmargin by -\headsep
+
+\usepackage[OT1]{fontenc}
+\usepackage{amsthm,amsmath,amsfonts}
+\usepackage{natbib}
+%\usepackage{multirow}
+\usepackage{booktabs}
+\usepackage{mathrsfs}
+\usepackage{graphicx,xcolor}
+\usepackage{subcaption}
+\usepackage{amssymb,latexsym}
+\usepackage{textcomp}
+\renewcommand{\rmdefault}{ptm}
+\usepackage[scaled=0.92]{helvet}
+\usepackage{times}
+\usepackage[final]{microtype}
+\usepackage{titling}
+
+\newcommand\colorm[1]{\textcolor{magenta}{#1}}
+\newcommand\colorgray[1]{\textcolor{gray}{#1}}
+
+% Algorithm table setting
+\LinesNumbered
+\RestyleAlgo{algoruled} 
+\usepackage{microtype}
+ 
+
+ 
+
+\makeatother
+
+\providecommand{\assumptionname}{Assumption}
+\providecommand{\corollaryname}{Corollary}
+\providecommand{\lemmaname}{Lemma}
+\providecommand{\propositionname}{Proposition}
+\providecommand{\remarkname}{Remark}
+\providecommand{\theoremname}{Theorem}
+\providecommand{\definitionname}{Definition}
+\providecommand{\examplename}{Example}
+
+\newtheorem*{remark*}{Remark}
+
+
+\begin{document}
+
+\title{Simulation setups}
+
+\maketitle 
+
+% Requires: \usepackage{graphicx}, \usepackage{booktabs}
+% Update this path if the main .tex file is compiled from a different directory.
+\providecommand{\PositiveSkewFigureDir}{../results/benchmarks/positive_skew_study/figures}
+
+\subsection{Positive-Skew Heteroskedastic Sweep: Neural Comparison}
+\label{sec:positive-skew-neural}
+
+\paragraph{Objective.}
+This experiment isolates the regime in which CAIRO is designed to help most: positive, skewed, heteroskedastic regression, where learning the ordering of outcomes may be easier than learning their absolute scale directly. To focus on the effect of the objective rather than model capacity, we compare the CAIRO neural variants only against architecture-matched neural baselines and omit tree-based direct regressors from this subsection.
+
+\paragraph{Data generation.}
+For each observation, we draw covariates $X_i \sim \mathcal{N}(0, I_{10}).$ We then construct a nonlinear base:
+\[
+\eta_i
+=
+\frac{X_i^\top w}{\sqrt{10}}
++ 0.55 \sin(X_{i1} + 0.5 X_{i2})
++ 0.25 X_{i3} X_{i4}
+- 0.20 \cos(X_{i5}),
+\]
+where \(w \sim \mathcal{N}(0, I_{10})\) is sampled once per replicate. After standardizing \(\eta_i\) to \(\tilde{\eta}_i\), we define a severity-dependent positive mean
+\[
+\mu_i = \exp\!\big((0.70 + 0.25s)\tilde{\eta}_i\big),
+\]
+and generate the response via multiplicative lognormal noise and a right-tail amplification term:
+\[
+Y_i
+=
+\mu_i \varepsilon_i \tau_i,
+\qquad
+\varepsilon_i \sim \mathrm{LogNormal}\!\left(-\frac{1}{2}\sigma_s^2,\sigma_s^2\right),
+\qquad
+\sigma_s = 0.10 + 0.22s,
+\]
+\[
+\tau_i = \exp\!\big(0.12s \max(\tilde{\eta}_i, 0)\big).
+\]
+The severity parameter \(s\) therefore simultaneously increases the nonlinearity of the mean, the strength of the multiplicative noise, and the heaviness of the upper tail. Empirically, this behaves as intended: the ratio of the \(95\)th percentile to the median increases from \(3.22 \pm 0.11\) at \(s=0\) to \(11.83 \pm 0.20\) at \(s=2\), while the correlation between \(\mu_i\) and \(|Y_i-\mu_i|\) increases from \(0.573 \pm 0.008\) to \(0.756 \pm 0.004\).
+
+\paragraph{Models.}
+We compare \textsc{CAIROK1}, \textsc{CAIROG1}, and \textsc{CAIROS1}, which all use the same \(32 \rightarrow 16 \rightarrow 1\) neural scorer followed by isotonic regression, but differ in their pairwise weighting scheme. We also report \textsc{CAIROG2}, which uses the same scorer with a soft-rank objective. The baselines are architecture-matched neural regressors with MSE, MAE, and validation-tuned Huber losses: \textsc{NN-MSE}, \textsc{NN-MAE}, and \textsc{NN-Huber}.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Selected results from the positive-skew heteroskedastic sweep, focusing on neural models only. For each severity we report the best CAIRO variant by RMSE together with its pairwise accuracy and calibration gap, and compare it against the architecture-matched neural baselines.}
+\label{tab:positive-skew-neural}
+\begin{tabular}{c l c c c c c c}
+\toprule
+Severity & Best CAIRO & PairAcc & RMSE & NN-Huber RMSE & NN-MAE RMSE & NN-MSE RMSE \\
+\midrule
+0.0 & \textsc{CAIROG1} & $0.95 \pm 0.00$ & $0.23 \pm 0.02$ & $0.41 \pm 0.03$ & $0.45 \pm 0.04$ & $0.48 \pm 0.04$ \\
+0.4 & \textsc{CAIROG1} & $0.93 \pm 0.00$ & $0.50 \pm 0.06$ & $0.77 \pm 0.13$ & $0.89 \pm 0.15$ & $0.83 \pm 0.14$ \\
+0.8 & \textsc{CAIROG1} & $0.91 \pm 0.00$ & $1.17 \pm 0.24$ & $1.74 \pm 0.46$ & $1.87 \pm 0.47$ & $1.77 \pm 0.43$ \\
+1.2 & \textsc{CAIROG1} & $0.90 \pm 0.01$ & $1.75 \pm 0.20$ & $2.16 \pm 0.24$ & $2.33 \pm 0.30$ & $2.26 \pm 0.25$ \\
+1.6 & \textsc{CAIROG1} & $0.89 \pm 0.00$ & $4.86 \pm 2.43$ & $5.74 \pm 2.67$ & $6.05 \pm 2.68$ & $5.79 \pm 2.66$ \\
+2.0 & \textsc{CAIROS1} & $0.88 \pm 0.00$ & $6.71 \pm 1.73$ & $7.42 \pm 1.80$ & $7.71 \pm 1.77$ & $7.42 \pm 1.73$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Results.}
+The main result is that the pairwise CAIRO variants substantially outperform the architecture-matched neural baselines throughout the sweep. In the low- and moderate-severity regimes (\(s \le 1.2\)), \textsc{CAIROG1} is the strongest model overall: it has the best RMSE, the best pairwise accuracy, and the smallest calibration gap. At \(s=0.8\), for example, \textsc{CAIROG1} achieves RMSE \(1.169 \pm 0.239\), compared with \(1.739 \pm 0.456\) for \textsc{NN-Huber}, \(1.873 \pm 0.466\) for \textsc{NN-MAE}, and \(1.765 \pm 0.429\) for \textsc{NN-MSE}. The same pattern persists at \(s=1.2\), where the best CAIRO variant is still clearly ahead on both point prediction and calibration.
+
+\paragraph{Discussion.}
+These results support the intended CAIRO mechanism. Because \textsc{NN-MSE}, \textsc{NN-MAE}, and \textsc{NN-Huber} use the same neural architecture as the CAIRO models, the improvement cannot be attributed to network size or capacity. Instead, it comes from the two-stage decomposition: the pairwise objective first learns a stable ordering of outcomes, and isotonic regression then restores the response scale. The weighted pairwise variants are particularly effective in this positive heavy-tail regime. \textsc{CAIROG1} is the strongest model across most of the sweep, while \textsc{CAIROS1} becomes slightly preferable at the most extreme severity \(s=2.0\), where it attains the best RMSE among the neural models while preserving the same strong ranking performance.
+
+
+\subsection{Stuff to add?}
+
+I don't think any of the implemented CAIRO methods (CAIRO-RANKNET, CAIRO-RANKNET-GINIW, CAIRO-GININET-SOFTRANK) corresponds to the choice $w(Y,Y') = |F_Y(Y) - F_Y(Y')|$, right?
+
+One other Data Generating Process (GDP) we could consider is the generalized regression model; see Eq.~(1.1) of \cite{shin2021exact}, originally studied by Han's estimator (Eq.~(1.2) in \cite{shin2021exact}).  Since Han's estimator is just the linear regression version of the loss $\mathcal{L}$ with the choice $w(Y,Y') = 1$ (resulting in $\mathcal{L}_{\textup{uni}}$), and Han's estimator solves the generalized regression model, this model should imply the condition for Kendall's $\tau$ within Theorem~2 (that is, $\mathcal{L}_{\textup{uni}}$ is ORO for this DGP).  Whether the implication works in the opposite direction (that is, any model satisfying the condition for Kendall's $\tau$ within Theorem~2 also falls under the generalized regression model), I do not know (probably not; current simulation setups~2 and 3 probably aren't instances of the generalized regression model).  I do not know whether the generalized regression model satisfies the conditions for the other two items within Theorem~2.
+
+We can also consider another baseline, with the goal of recovering the optimal ranking only.  For CAIRO, the first stage does this (as the second stage probably sacrifices the rank loss for a gain in the square loss, but we can check this); for the competitors, we can recover the ranks from their respective fits.
+
+I am not sure if comparing with Huber would be fair for us.  For a fair comparison, we should also Huberize the second stage.
+
+Can we also attempt a variant of the current DGP scenario~1, but simply changing the Gaussian noise to a heavier-tailed but symmetric noise, and retaining the simple linear regression structure.
+
+Currently, ``pointwise'' serves two different purposes in the manuscript: to denote the square loss and to denote the single-sum version of the Gini loss after smoothing.
+
+\bibliography{references}
+\bibliographystyle{icml2025}
+
+\end{document}

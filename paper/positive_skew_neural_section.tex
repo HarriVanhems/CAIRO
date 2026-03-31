@@ -1,0 +1,68 @@
+% Requires: \usepackage{amsmath}, \usepackage{booktabs}
+
+\subsection{Positive-Skew Heteroskedastic Sweep: Neural Comparison}
+\label{sec:positive-skew-neural}
+
+\paragraph{Objective.}
+This experiment isolates the regime in which CAIRO is designed to help most: positive, skewed, heteroskedastic regression, where learning the ordering of outcomes may be easier than learning their absolute scale directly. To focus on the effect of the objective rather than model capacity, we compare the CAIRO neural variants only against architecture-matched neural baselines and omit tree-based direct regressors from this subsection.
+
+\paragraph{Data generation.}
+For each observation, we draw covariates
+\[
+X_i \sim \mathcal{N}(0, I_{10}).
+\]
+We then construct a nonlinear latent index
+\[
+\eta_i
+=
+\frac{X_i^\top w}{\sqrt{10}}
++ 0.55 \sin(X_{i1} + 0.5 X_{i2})
++ 0.25 X_{i3} X_{i4}
+- 0.20 \cos(X_{i5}),
+\]
+where \(w \sim \mathcal{N}(0, I_{10})\) is sampled once per replicate. After standardizing \(\eta_i\) to \(\tilde{\eta}_i\), we define a severity-dependent positive mean
+\[
+\mu_i = \exp\!\big((0.70 + 0.25s)\tilde{\eta}_i\big),
+\]
+and generate the response via multiplicative lognormal noise and a right-tail amplification term:
+\[
+Y_i
+=
+\mu_i \varepsilon_i \tau_i,
+\qquad
+\varepsilon_i \sim \mathrm{LogNormal}\!\left(-\frac{1}{2}\sigma_s^2,\sigma_s^2\right),
+\qquad
+\sigma_s = 0.10 + 0.22s,
+\]
+\[
+\tau_i = \exp\!\big(0.12s \max(\tilde{\eta}_i, 0)\big).
+\]
+The severity parameter \(s\) therefore simultaneously increases the nonlinearity of the mean, the strength of the multiplicative noise, and the heaviness of the upper tail. Empirically, this behaves as intended: the ratio of the \(95\)th percentile to the median increases from \(3.22 \pm 0.11\) at \(s=0\) to \(11.83 \pm 0.20\) at \(s=2\), while the correlation between \(\mu_i\) and \(|Y_i-\mu_i|\) increases from \(0.573 \pm 0.008\) to \(0.756 \pm 0.004\).
+
+\paragraph{Models.}
+We compare \textsc{CAIROK1}, \textsc{CAIROG1}, and \textsc{CAIROS1}, which all use the same \(32 \rightarrow 16 \rightarrow 1\) neural scorer followed by isotonic regression, but differ in their pairwise weighting scheme. We also report \textsc{CAIROG2}, which uses the same scorer with a soft-rank objective. The baselines are architecture-matched neural regressors with MSE, MAE, and validation-tuned Huber losses: \textsc{NN-MSE}, \textsc{NN-MAE}, and \textsc{NN-Huber}.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Selected results from the positive-skew heteroskedastic sweep, focusing on neural models only. For each severity we report the best CAIRO variant by RMSE together with its pairwise accuracy and calibration gap, and compare it against the architecture-matched neural baselines.}
+\label{tab:positive-skew-neural}
+\begin{tabular}{c l c c c c c c}
+\toprule
+Severity & Best CAIRO & PairAcc & RMSE & CalGap & NN-Huber RMSE & NN-MAE RMSE & NN-MSE RMSE \\
+\midrule
+0.0 & \textsc{CAIROG1} & $0.954 \pm 0.002$ & $0.229 \pm 0.019$ & $0.015 \pm 0.007$ & $0.411 \pm 0.028$ & $0.453 \pm 0.036$ & $0.476 \pm 0.036$ \\
+0.4 & \textsc{CAIROG1} & $0.928 \pm 0.002$ & $0.498 \pm 0.062$ & $0.030 \pm 0.002$ & $0.767 \pm 0.128$ & $0.885 \pm 0.148$ & $0.828 \pm 0.140$ \\
+0.8 & \textsc{CAIROG1} & $0.912 \pm 0.004$ & $1.169 \pm 0.239$ & $0.065 \pm 0.025$ & $1.739 \pm 0.456$ & $1.873 \pm 0.466$ & $1.765 \pm 0.429$ \\
+1.2 & \textsc{CAIROG1} & $0.898 \pm 0.005$ & $1.752 \pm 0.198$ & $0.082 \pm 0.032$ & $2.159 \pm 0.238$ & $2.332 \pm 0.295$ & $2.259 \pm 0.247$ \\
+1.6 & \textsc{CAIROG1} & $0.886 \pm 0.003$ & $4.858 \pm 2.433$ & $0.166 \pm 0.053$ & $5.740 \pm 2.665$ & $6.048 \pm 2.680$ & $5.787 \pm 2.664$ \\
+2.0 & \textsc{CAIROS1} & $0.881 \pm 0.002$ & $6.708 \pm 1.728$ & $0.169 \pm 0.083$ & $7.418 \pm 1.800$ & $7.708 \pm 1.768$ & $7.417 \pm 1.725$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Results.}
+The main result is that the pairwise CAIRO variants substantially outperform the architecture-matched neural baselines throughout the sweep. In the low- and moderate-severity regimes (\(s \le 1.2\)), \textsc{CAIROG1} is the strongest model overall: it has the best RMSE, the best pairwise accuracy, and the smallest calibration gap. At \(s=0.8\), for example, \textsc{CAIROG1} achieves RMSE \(1.169 \pm 0.239\), compared with \(1.739 \pm 0.456\) for \textsc{NN-Huber}, \(1.873 \pm 0.466\) for \textsc{NN-MAE}, and \(1.765 \pm 0.429\) for \textsc{NN-MSE}. The same pattern persists at \(s=1.2\), where the best CAIRO variant is still clearly ahead on both point prediction and calibration.
+
+\paragraph{Discussion.}
+These results support the intended CAIRO mechanism. Because \textsc{NN-MSE}, \textsc{NN-MAE}, and \textsc{NN-Huber} use the same neural architecture as the CAIRO models, the improvement cannot be attributed to network size or capacity. Instead, it comes from the two-stage decomposition: the pairwise objective first learns a stable ordering of outcomes, and isotonic regression then restores the response scale. The weighted pairwise variants are particularly effective in this positive heavy-tail regime. \textsc{CAIROG1} is the strongest model across most of the sweep, while \textsc{CAIROS1} becomes slightly preferable at the most extreme severity \(s=2.0\), where it attains the best RMSE among the neural models while preserving the same strong ranking performance.

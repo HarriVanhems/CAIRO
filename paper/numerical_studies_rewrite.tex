@@ -1,0 +1,199 @@
+% Requires: \usepackage{graphicx}, \usepackage{booktabs}
+\providecommand{\MonotoneFigureDirPatched}{../results/benchmarks/monotone_distortion_neural_full_g2patched/figures}
+\providecommand{\PositiveSkewFigureDirPatched}{../results/benchmarks/positive_skew_study_g2patched/figures}
+\providecommand{\MatchedErrorFigureDirFull}{../results/benchmarks/matched_error_study_full/figures}
+\providecommand{\MatchedErrorFigureDirVis}{../paper/figures}
+
+We begin with synthetic diagnostics before turning to real-data benchmarks. The synthetic block addresses two questions that are central to \textsc{CAIRO}: when is the order of the conditional mean easier to learn than its scale, and when does held-out monotone calibration convert that ordering signal into a strong regressor? The matched additive-vs.-multiplicative sweep and the one-dimensional visualization provide intuition for these questions; the monotone-distortion and positive-skew studies provide the main empirical evidence.
+
+To isolate the effect of the objective rather than model capacity, all synthetic comparisons use the same $32 \rightarrow 16 \rightarrow 1$ leaky-ReLU MLP backbone for \textsc{CAIROK1}, \textsc{CAIROG1}, \textsc{CAIROS1}, \textsc{CAIROG2}, \textsc{NN-MSE}, \textsc{NN-MAE}, and \textsc{NN-Huber}. Each repeat starts from a fresh $70/30$ train--test split; within the training portion, we reserve $20\%$ for calibration and $20\%$ of the remainder for validation. Stage~2 isotonic regression is applied only to the \textsc{CAIRO} models. The direct baselines \textsc{NN-MSE}, \textsc{NN-MAE}, and \textsc{NN-Huber} are evaluated as raw regressors without isotonic post-processing. We emphasize pairwise accuracy, RMSE, and calibration gap because they track, respectively, order recovery, point prediction quality, and out-of-sample scale alignment; Spearman's $\rho$ is reported as a secondary rank summary.
+
+Optimization is also standardized, but not forced into a single epoch budget across model families. The pairwise \textsc{CAIROK1}, \textsc{CAIROG1}, and \textsc{CAIROS1} objectives are the easiest to optimize and use a maximum of $80$ epochs with early-stopping patience $8$. The pointwise \textsc{CAIROG2} objective is less stable numerically and therefore uses a larger budget of $192$ epochs with patience $18$. The direct baselines \textsc{NN-MSE}, \textsc{NN-MAE}, and \textsc{NN-Huber} must learn the response scale directly rather than recover it through Stage~2, so we allow them longer budgets of $400$, $480$, and $520$ epochs, with patience $28$, $28$, and $32$, respectively. All neural models use Adam together with validation-based learning-rate reduction and early stopping. For \textsc{NN-Huber}, a fixed threshold would make the loss arbitrarily more MSE-like or MAE-like depending on the scale of \(Y\), so we tune the threshold on the validation split over
+\[
+\delta \in \hat{s}_y \times \{0.25,\,0.5,\,1,\,2,\,4\},
+\]
+where \(\hat{s}_y\) is a robust scale estimate computed from the training targets; the selected value is the one with the best validation RMSE, with MAE used to break ties.
+
+Our naming convention is as follows. The letter identifies the rank target: \textsc{K} for Kendall, \textsc{G} for Gini, and \textsc{S} for Spearman. The suffix identifies the Stage~1 smoothing strategy: ``1'' denotes the pairwise logistic smoothing used by the RankNet-style variants, while ``2'' denotes the pointwise SoftRank formulation. Thus \textsc{CAIROG1} is the pairwise Gini variant, \textsc{CAIROG2} is the pointwise Gini variant, and \textsc{CAIROK1}/\textsc{CAIROS1} are the pairwise Kendall and Spearman variants.
+
+\subsection{Synthetic Studies}
+\label{subsec:dgps}
+\label{subsec:synthetic_results}
+
+\subsubsection{Matched additive vs.\ multiplicative heavy-tail sweep.}
+This study uses the same latent linear score but two different noise families. We draw
+\[
+X \sim \mathcal{N}(0, I_{10}), \qquad z=\beta^\top X/\sqrt{10},
+\]
+and compare two response models built on that shared ordering variable. In the additive family, the conditional mean is \(z\) and
+\[
+Y_{\mathrm{add}} = z + A_s,
+\qquad
+\nu_s = \max\!\left\{2.5,\frac{20}{1+3s}\right\},
+\qquad
+A_s = a_s \cdot \frac{t_{\nu_s}}{\sqrt{\nu_s/(\nu_s-2)}},
+\qquad
+a_s = 0.35 + 0.10 s.
+\]
+In the multiplicative family, the conditional mean is \(\mu(z)=2.5+0.7z\) and
+\[
+Y_{\mathrm{mult}} = \mu(z)\,M_s,
+\qquad
+\log M_s \sim \mathcal{N}\!\left(-\frac{b_s^2}{2},\, b_s^2\right),
+\qquad
+b_s = 0.10 + 0.22 s.
+\]
+The severity sweep uses \(s \in \{0,0.5,1.0,1.5,2.0\}\). The point of the comparison is to separate two kinds of difficulty: additive heavy tails mainly test robust pointwise fitting, whereas multiplicative shocks preserve the latent ordering more naturally than the scale and therefore create a cleaner \textsc{CAIRO} stress test.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{\MatchedErrorFigureDirFull/matched_error_story.pdf}
+\caption{\textbf{Matched additive-vs.-multiplicative heavy-tail sweep.} Each row uses the same latent ordering variable and the same neural backbone, and changes only how heavy tails enter the response. The additive row behaves like a boundary case for \textsc{CAIRO}: the rankers retain an ordering advantage, but the robust direct baselines remain competitive on point prediction and calibration. The multiplicative row is more favorable to \textsc{CAIRO}: the rank-based variants dominate on ordering quality throughout the sweep and are best or tied on RMSE through the moderate-severity regime.}
+\label{fig:matched-error-sweep}
+\end{figure*}
+
+Figure~\ref{fig:matched-error-sweep} gives a cleaner boundary-case test than a broad synthetic benchmark table. Under additive heavy tails, the \textsc{CAIRO} variants keep the best ordering across the sweep, but \texttt{NN-Huber} is typically best on RMSE and either \texttt{NN-Huber} or \texttt{NN-MSE} is best on calibration gap. This is a credible regime in which direct robust regression remains hard to beat. Under multiplicative heavy tails, the pattern changes: the \textsc{CAIRO} variants are best on pair accuracy at every severity level, and \textsc{CAIRO-G1}/\textsc{CAIRO-G2}/\textsc{CAIRO-S1} are also best or essentially tied on RMSE from $s=0$ through $s=1.5$. At the most severe setting, \texttt{NN-Huber} narrows the RMSE gap, but it still trails the \textsc{CAIRO} variants on ordering quality. The right takeaway is therefore not a uniform calibration win; it is that \textsc{CAIRO} helps most when scale is distorted multiplicatively while the latent order remains informative.
+
+\subsubsection{One-dimensional visualization of Stage~1 and Stage~2.}
+To visualize why the matched-noise sweep behaves this way, we also construct a one-dimensional diagnostic at severity $s=0.75$ using \(n=1200\) samples and the same train/validation/calibration protocol. Here \(x \sim \mathrm{Unif}[-2.5,2.5]\) and
+\[
+g(x)=x+0.55\,\tanh(1.2x).
+\]
+In the additive panel we use
+\[
+\mu_{\mathrm{add}}(x)=g(x),
+\qquad
+Y_{\mathrm{add}} = \mu_{\mathrm{add}}(x) + 0.75\cdot \frac{t_{\nu_{0.75}}}{\sqrt{\nu_{0.75}/(\nu_{0.75}-2)}},
+\qquad
+\nu_{0.75} = \max\!\left\{2.5,\frac{20}{1+3(0.75)}\right\},
+\]
+and in the multiplicative panel we use
+\[
+\mu_{\mathrm{mult}}(x)=2+\exp\!\big(0.45\,g(x)\big),
+\qquad
+\log M_{0.75} \sim \mathcal{N}\!\left(-\frac{0.75^2}{2},\,0.75^2\right),
+\qquad
+Y_{\mathrm{mult}} = \mu_{\mathrm{mult}}(x) M_{0.75},
+\]
+so the mean curve is visibly nonlinear even before noise is added. We fit \textsc{CAIRO-G1} and \texttt{NN-Huber}, then plot the true mean, the calibrated \textsc{CAIRO} predictor, and the raw Stage~1 score after an affine rescaling for display only. This is an intuition figure, not a separate benchmark.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{\MatchedErrorFigureDirVis/matched_error_1d_visualization.pdf}
+\caption{\textbf{One-dimensional view of the two-stage mechanism at severity $s=0.75$.} The top row compares the true mean, the calibrated \textsc{CAIRO-G1} predictor, and \texttt{NN-Huber}; the bottom row shows the raw Stage~1 score after affine rescaling for visualization only. The additive panel is mainly a sanity check. The multiplicative panel is the more informative one: the Stage~1 score preserves the monotone structure, and isotonic calibration turns that ordering signal into a predictor that tracks the conditional mean well despite the positive skew in the observed responses.}
+\label{fig:matched-error-1d}
+\end{figure*}
+
+Figure~\ref{fig:matched-error-1d} should be read as a diagnostic companion to Figure~\ref{fig:matched-error-sweep}. In both noise families, the Stage~1 score captures the correct monotone trend. The additive case is mainly a sanity check showing that the two-stage pipeline does not distort a simple linear signal. The multiplicative case is more revealing: the Stage~1 score remains well ordered even though the raw responses are strongly right-skewed, and the isotonic second stage maps that score back toward the mean scale. The point is not to claim a standalone win from one slice of the data, but to make the mechanism behind the sweep visually transparent.
+
+\subsubsection{Monotone distortion: isolating the CAIRO mechanism.}
+The first main experiment is a direct mechanism check. We draw \(X \sim \mathcal{N}(0,I_{10})\), map it to a latent score through a random one-hidden-layer ReLU network,
+\[
+u(X)=\mathrm{std}\!\left(\sum_{k=1}^{24} w_{2k}\max\{0,\,w_{1k}^\top X+b_{1k}\}\right),
+\]
+and then apply an increasing warp before adding heteroskedastic Gaussian noise:
+\[
+\phi_\alpha(u)=u+\frac{\alpha}{3}u^3+0.35\,\alpha\,\tanh(2u),
+\qquad
+\varepsilon \mid u \sim \mathcal{N}\!\left(0,\;0.2^2(1+0.3|u|)^2\right),
+\qquad
+Y=\phi_\alpha(u)+\varepsilon.
+\]
+The sweep uses \(\alpha \in \{0,0.4,0.8,1.2,1.6,2.0\}\). As \(\alpha\) increases, the ordering of the signal is unchanged while its scale becomes harder to recover. This is therefore a controlled test of the \textsc{CAIRO} mechanism: can Stage~1 keep the order, and can Stage~2 undo the monotone warp?
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{\MonotoneFigureDirPatched/monotone_story.pdf}
+\vspace{0.7em}
+{\scriptsize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.03}
+\textbf{Compact numerical summary.} The table reports all neural models used in the figure; the Stage~1 rows show the learned ordering before isotonic calibration.
+
+\vspace{0.3em}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l*{15}{c}}
+\toprule
+& \multicolumn{3}{c}{$\alpha=0.0$} & \multicolumn{3}{c}{$\alpha=0.4$} & \multicolumn{3}{c}{$\alpha=0.8$} & \multicolumn{3}{c}{$\alpha=1.2$} & \multicolumn{3}{c}{$\alpha=2.0$} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}\cmidrule(lr){11-13}\cmidrule(lr){14-16}
+Model & PairAcc & RMSE & CalGap & PairAcc & RMSE & CalGap & PairAcc & RMSE & CalGap & PairAcc & RMSE & CalGap & PairAcc & RMSE & CalGap \\
+\midrule
+CAIRO-K1 Stage 1 & 0.911 &  6.695 &  5.453 & 0.927 &  5.335 &  4.166 & 0.940 &  6.868 &  5.629 & 0.949 &  8.159 &  6.562 & 0.958 & 13.012 & 10.940 \\
+CAIRO-K1         & \textbf{0.921} &  0.294 &  0.031 & 0.936 &  0.345 &  0.035 & 0.948 &  \textbf{0.486} &  0.045 & 0.956 &  0.695 &  \textbf{0.042} & \textbf{0.965} &  1.179 &  \textbf{0.060} \\
+CAIRO-G1 Stage 1 & 0.910 &  9.133 &  7.154 & 0.929 &  9.734 &  7.713 & 0.942 & 11.449 &  9.289 & 0.950 & 13.094 & 10.449 & 0.959 & 17.864 & 14.686 \\
+CAIRO-G1         & 0.920 &  \textbf{0.293} &  0.033 & \textbf{0.937} &  \textbf{0.328} &  0.035 & \textbf{0.949} &  \textbf{0.486} &  \textbf{0.043} & \textbf{0.957} &  \textbf{0.691} &  0.043 & \textbf{0.965} &  \textbf{1.174} &  0.066 \\
+CAIRO-S1 Stage 1 & 0.910 &  9.180 &  7.166 & 0.926 &  9.504 &  7.301 & 0.940 & 10.551 &  8.635 & 0.947 & 12.801 & 10.279 & 0.957 & 14.682 & 11.983 \\
+CAIRO-S1         & \textbf{0.921} &  0.294 &  0.030 & 0.935 &  0.355 &  0.035 & 0.948 &  0.502 &  0.051 & 0.954 &  0.743 &  0.052 & 0.963 &  1.206 &  0.065 \\
+CAIRO-G2 Stage 1 & 0.907 &  0.641 &  0.470 & 0.925 &  1.149 &  0.748 & 0.936 &  1.828 &  1.010 & 0.941 &  2.548 &  1.345 & 0.949 &  4.109 &  1.997 \\
+CAIRO-G2         & 0.918 &  0.302 &  0.034 & 0.933 &  0.351 &  0.032 & 0.944 &  0.539 &  0.050 & 0.949 &  0.776 &  0.062 & 0.955 &  1.274 &  0.072 \\
+NN-MSE           & 0.904 &  0.300 &  0.024 & 0.912 &  0.419 &  0.042 & 0.923 &  0.654 &  0.070 & 0.925 &  0.887 &  0.089 & 0.915 &  1.717 &  0.268 \\
+NN-MAE           & 0.903 &  0.304 &  0.022 & 0.919 &  0.437 &  0.049 & 0.930 &  0.718 &  0.101 & 0.936 &  1.036 &  0.136 & 0.939 &  1.981 &  0.292 \\
+NN-Huber         & 0.906 &  0.296 &  \textbf{0.021} & 0.920 &  0.369 &  \textbf{0.031} & 0.929 &  0.614 &  0.057 & 0.933 &  0.814 &  0.072 & 0.929 &  1.492 &  0.186 \\
+\bottomrule
+\end{tabular}}
+}
+\caption{\textbf{Monotone-distortion mechanism study.} The panels track how the ordering and scale-recovery story evolves as the monotone warp strengthens. The compact table underneath anchors the curves with the actual values at five distortion levels. The experiment visualizes the exact decomposition that motivates \textsc{CAIRO}: learn the order first, then recover the scale by a monotone map.}
+\label{fig:monotone-story}
+\end{figure*}
+
+Figure~\ref{fig:monotone-story} provides the clearest mechanism experiment in the paper. The Stage~1 rows show why calibration is necessary: the order is already strong, but the raw scores are badly mis-scaled. Once isotonic calibration is applied, all four \textsc{CAIRO} variants become competitive regressors, with \textsc{CAIRO-K1}, \textsc{CAIRO-G1}, and \textsc{CAIRO-S1} tightly clustered and usually strongest once the distortion is nontrivial. The patched pointwise model \textsc{CAIRO-G2} follows the same pattern, although it remains somewhat weaker than the pairwise variants. The direct baselines are still competitive at mild distortion, but they deteriorate faster as the warp strengthens. The key takeaway is therefore not uniform dominance; it is that the experiment explicitly verifies the intended mechanism: Stage~1 can preserve the order even when scale is badly warped, and held-out monotone calibration can turn that ordering signal into a strong regressor.
+
+\subsubsection{Positive-skew heteroskedastic severity sweep.}
+The second experiment tests a more application-facing regime with multiplicative right tails and mean-dependent variance. We draw \(X \sim \mathcal{N}(0,I_{10})\) and define
+\[
+z=\mathrm{std}\!\left(
+\frac{w^\top X}{\sqrt{10}}
++ 0.55\sin(X_1+0.5X_2)
++ 0.25\,X_3X_4
+-0.20\cos(X_5)
+\right).
+\]
+For severity \(s \in \{0.0,0.4,0.8,1.2,1.6,2.0\}\), we set
+\[
+\mu_s(z)=\exp\!\big((0.70+0.25s)z\big),
+\qquad
+\log M_s \sim \mathcal{N}\!\left(-\frac{c_s^2}{2},\,c_s^2\right),
+\qquad
+c_s=0.10+0.22s,
+\]
+and generate
+\[
+Y=\mu_s(z)\,M_s\,\exp\!\big(0.12s\max(z,0)\big).
+\]
+As \(s\) increases, the response becomes more right-skewed and more heteroskedastic without changing the underlying latent ordering problem.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{\PositiveSkewFigureDirPatched/positive_skew_story.pdf}
+\vspace{0.7em}
+{\scriptsize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.03}
+\textbf{Compact numerical summary.} The table reports the same neural-only comparison across five severity levels, now including all seven models.
+
+\vspace{0.3em}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l*{15}{c}}
+\toprule
+& \multicolumn{3}{c}{$s=0.0$} & \multicolumn{3}{c}{$s=0.4$} & \multicolumn{3}{c}{$s=0.8$} & \multicolumn{3}{c}{$s=1.2$} & \multicolumn{3}{c}{$s=2.0$} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}\cmidrule(lr){11-13}\cmidrule(lr){14-16}
+Model & PairAcc & RMSE & CalGap & PairAcc & RMSE & CalGap & PairAcc & RMSE & CalGap & PairAcc & RMSE & CalGap & PairAcc & RMSE & CalGap \\
+\midrule
+CAIRO-K1 & 0.953 & 0.246 & 0.016 & 0.927 & 0.534 & 0.030 & 0.910 & 1.273 & 0.078 & \textbf{0.900} & 1.753 & 0.094 & 0.879 & 6.931 & 0.159 \\
+CAIRO-G1 & \textbf{0.954} & \textbf{0.229} & \textbf{0.015} & \textbf{0.928} & \textbf{0.498} & 0.030 & \textbf{0.912} & \textbf{1.169} & 0.065 & 0.898 & 1.752 & \textbf{0.082} & 0.876 & 6.769 & \textbf{0.155} \\
+CAIRO-S1 & 0.953 & 0.248 & 0.016 & \textbf{0.928} & 0.522 & 0.032 & 0.910 & 1.260 & 0.065 & 0.899 & 1.754 & 0.094 & \textbf{0.881} & 6.708 & 0.169 \\
+CAIRO-G2 & 0.951 & 0.241 & 0.017 & 0.927 & 0.512 & \textbf{0.029} & 0.908 & 1.241 & \textbf{0.061} & 0.896 & \textbf{1.720} & 0.102 & 0.878 & \textbf{6.090} & 0.165 \\
+NN-MSE   & 0.919 & 0.313 & 0.029 & 0.880 & 0.662 & 0.131 & 0.869 & 1.365 & 0.088 & 0.847 & 1.847 & 0.188 & 0.820 & 6.403 & 0.719 \\
+NN-MAE   & 0.930 & 0.331 & 0.036 & 0.908 & 0.621 & 0.062 & 0.886 & 1.565 & 0.134 & 0.876 & 1.945 & 0.185 & 0.856 & 6.630 & 0.586 \\
+NN-Huber & 0.930 & 0.282 & 0.024 & 0.901 & 0.558 & 0.034 & 0.871 & 1.417 & 0.081 & 0.867 & 1.836 & 0.142 & 0.833 & 6.297 & 0.417 \\
+\bottomrule
+\end{tabular}}
+}
+\caption{\textbf{Positive-skew heteroskedastic sweep.} The top row summarizes how the data-generating process changes with severity: heavier tails, larger tail ratios, and stronger mean-dependent variance. The bottom row reports the resulting regression difficulty on a fixed neural backbone. The compact table underneath keeps the core numerical comparisons tied to the same experiment. The moderate-severity regime favors \textsc{CAIRO} most clearly, while the extreme-severity regime still shows a strong advantage in ordering quality and calibration even when robust direct regression closes part of the RMSE gap.}
+\label{fig:positive-skew-updated}
+\end{figure*}
+
+Figure~\ref{fig:positive-skew-updated} shows that \textsc{CAIRO} is strongest in the moderate-severity regime and remains better ordered and better calibrated than the direct neural baselines throughout the sweep. At low and moderate severity, all four \textsc{CAIRO} variants beat the direct neural baselines on ranking quality and calibration, and typically on RMSE as well. Within the \textsc{CAIRO} family, \textsc{CAIRO-G1} is the most consistently strong overall, while \textsc{CAIRO-G2} often gives the best RMSE once the tails become very severe. \textsc{CAIRO-K1} and \textsc{CAIRO-S1} remain close throughout, which supports the view that the advantage comes from the order-then-calibrate decomposition itself rather than from one special weighting choice. At the highest severities, \texttt{NN-Huber} narrows the RMSE gap, but it still loses materially on pair accuracy and calibration. Thus the synthetic takeaway is not that \textsc{CAIRO} always wins on RMSE; it is that \textsc{CAIRO} is especially effective when skew and heteroskedasticity make direct scale learning difficult, and that its advantage is most visible in ordering quality and calibration.
+
+\paragraph{Summary of the synthetic evidence.}
+The four synthetic components play distinct roles. The matched additive-vs.-multiplicative sweep identifies the boundary of the method by contrasting a robust-regression regime with a scale-distortion regime. The one-dimensional plot provides a visual companion to that comparison. The monotone-distortion study then isolates the mechanism directly and shows that Stage~2 calibration can convert an excellent but mis-scaled ranker into a strong regressor. Finally, the positive-skew sweep shows the practical payoff of that mechanism in a realistic heavy-right-tail setting. Taken together, these experiments support a single story: order recovery is the hard constraint, monotone calibration is the scale-recovery device, and \textsc{CAIRO} is most effective when ordering remains learnable while direct scale fitting becomes difficult.

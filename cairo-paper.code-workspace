@@ -1,0 +1,17 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "window.title": "CAIRO Paper"
+  },
+  "extensions": {
+    "recommendations": [
+      "james-yu.latex-workshop",
+      "ms-python.python",
+      "openai.chatgpt"
+    ]
+  }
+}
